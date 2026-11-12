@@ -1,23 +1,90 @@
-# Builds the Android APK in Expo's cloud (EAS). Needs the EXPO_TOKEN repo secret.
-# Run manually, or push a tag like v0.1.0.
-name: Android APK (EAS)
+# Builds the Android APK right here on GitHub — no Expo account or token needed.
+# Runs automatically when the app changes on main, or manually (Actions → Android APK → Run workflow).
+# Download: Releases → "CloudPilot Android (latest)" → CloudPilot.apk  (open the link on your phone).
+name: Android APK
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      CI: "1"
+      NODE_ENV: production
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - run: npm ci
-      - run: npm run build --workspace packages/shared
-      - working-directory: apps/mobile
-        run: eas build --platform android --profile preview --non-interactive --no-wait
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build --workspace packages/shared
+
+      - name: Generate native Android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Use your own signing key (optional)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        working-directory: apps/mobile/android
+        run: |
+          # Replace the template's debug keystore so updates keep installing over each other.
+          echo "$KEYSTORE" | base64 -d > app/debug.keystore
+
+      - name: Build release APK (arm64 — Galaxy S26 / Tab S7)
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk out/CloudPilot.apk
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CloudPilot-apk-${{ github.run_number }}
+          path: out/CloudPilot.apk
+
+      - name: Publish to the "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: CloudPilot Android (latest)
+          prerelease: true
+          overwrite_files: true
+          files: out/CloudPilot.apk
+          body: |
+            Latest Android build from `${{ github.sha }}` (run #${{ github.run_number }}).
+
+            **Install:** open this page on your phone or tablet, tap **CloudPilot.apk**, and allow
+            "Install unknown apps" for your browser when Android asks. Newer builds install over older ones.

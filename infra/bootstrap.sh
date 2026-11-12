@@ -38,7 +38,7 @@ if [[ -n "$ALLOWED" ]]; then
 else
   info "No region policy found (all regions allowed)."
 fi
-PREFERRED=(${CP_LOCATION:-} centralindia southindia eastasia southeastasia uaenorth eastus2 eastus westus2 northeurope westeurope)
+PREFERRED=("${CP_LOCATION:-}" centralindia southindia eastasia southeastasia uaenorth eastus2 eastus westus2 northeurope westeurope)
 LOCATION=""
 for loc in "${PREFERRED[@]}"; do
   [[ -z "$loc" ]] && continue
@@ -92,7 +92,7 @@ az functionapp deployment source config-zip -g "$RG" -n "$FUNC" --src "$ZIP" -o 
 
 # ---------------------------------------------------------------- done
 bold "6/6 Waiting for the VM to finish first boot (cloud-init ≈ 8–12 min)"
-for i in $(seq 1 90); do
+for _ in $(seq 1 90); do
   if curl -fsS "https://$FQDN/health" >/dev/null 2>&1; then info "Agent is up."; break; fi
   sleep 10
 done

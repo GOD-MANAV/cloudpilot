@@ -13,3 +13,5 @@ local.settings.json
 /data/
 .DS_Store
 dist-bundle/
+apps/mobile/android/
+apps/mobile/ios/
