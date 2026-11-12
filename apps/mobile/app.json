@@ -10,7 +10,10 @@
     "backgroundColor": "#0B1020",
     "android": {
       "package": "app.cloudpilot.mobile",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#6553F5" },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6553F5"
+      },
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
@@ -27,7 +30,11 @@
       "expo-font",
       [
         "expo-splash-screen",
-        { "image": "./assets/splash-icon.png", "imageWidth": 160, "backgroundColor": "#0B1020" }
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "backgroundColor": "#0B1020"
+        }
       ],
       [
         "expo-camera",
@@ -37,11 +44,37 @@
           "recordAudioAndroid": true
         }
       ],
-      ["expo-local-authentication", { "faceIDPermission": "Unlock CloudPilot with your face." }],
-      ["expo-notifications", { "icon": "./assets/notification-icon.png", "color": "#6553F5" }],
-      ["expo-image-picker", { "photosPermission": "Pick the photo shown when your camera is off." }],
-      "@config-plugins/react-native-webrtc"
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock CloudPilot with your face."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6553F5"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick the photo shown when your camera is off."
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.oney.WebRTCModule.** { *; }"
+          }
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": false }
+    "experiments": {
+      "typedRoutes": false
+    }
   }
 }

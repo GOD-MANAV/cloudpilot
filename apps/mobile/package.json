@@ -16,6 +16,7 @@
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/space-grotesk": "^0.4.1",
     "expo": "~58.0.24",
+    "expo-build-properties": "~58.0.12",
     "expo-camera": "~58.0.14",
     "expo-clipboard": "~58.0.4",
     "expo-constants": "~58.0.16",
