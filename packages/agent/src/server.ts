@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rm, stat, statfs, writeFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
+import { readFile, readdir, stat, statfs, writeFile } from "node:fs/promises";
+import { extname, join, posix } from "node:path";
 import websocket from "@fastify/websocket";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { BotCommand, hasScope, type AuthResult, type TokenScope } from "@cloudpilot/shared";
@@ -16,6 +17,7 @@ import type { Delivery, DeliveryReport } from "./delivery/pipeline.js";
 import type { Google } from "./delivery/google.js";
 import type { IdleWatch } from "./idle.js";
 import { buildMcpServer } from "./mcp.js";
+import { SandboxFs, cleanEnv, type Sandbox } from "./sandbox.js";
 import { Settings, redact, type JsonFile } from "./settings.js";
 
 export interface ServerDeps {
@@ -59,7 +61,8 @@ function bearerOf(req: FastifyRequest): string | null {
 
 export async function buildServer(d: ServerDeps) {
   const { cfg, control, bot, idle } = d;
-  const app = Fastify({ logger: { level: "warn" }, bodyLimit: 512 * 1024 * 1024, trustProxy: true });
+  // Small default body limit; only the authenticated upload routes raise it.
+  const app = Fastify({ logger: { level: "warn" }, bodyLimit: 2 * 1024 * 1024, trustProxy: true });
   await app.register(websocket);
   app.addContentTypeParser(["application/octet-stream", "image/jpeg", "image/png"], { parseAs: "buffer" }, (_r, body, done) =>
     done(null, body),
@@ -75,6 +78,7 @@ export async function buildServer(d: ServerDeps) {
   });
 
   const authOf = async (req: FastifyRequest, token?: string | null): Promise<AuthResult> => control.auth(token ?? bearerOf(req));
+  /** Route-level auth. Used as an onRequest hook, so it runs before any request body is read. */
   const guard = (scope: TokenScope) => async (req: FastifyRequest, reply: FastifyReply) => {
     const a = await authOf(req);
     if (!a) return reply.code(401).send({ error: "Missing or invalid token" });
@@ -85,7 +89,10 @@ export async function buildServer(d: ServerDeps) {
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof z.ZodError) return reply.code(400).send({ error: z.prettifyError(err) });
     const status = (err as { statusCode?: number }).statusCode ?? 500;
-    if (status >= 500) console.error(err);
+    if (status >= 500) {
+      console.error(err);
+      return reply.code(500).send({ error: "Internal error" }); // no internals to the client
+    }
     return reply.code(status >= 400 ? status : 500).send({ error: (err as Error).message });
   });
 
@@ -93,24 +100,45 @@ export async function buildServer(d: ServerDeps) {
   app.get("/health", async () => ({ ok: true, phase: bot.state.phase }));
 
   /* ------------------------------------------------------------ live desktop (KasmVNC behind Caddy :8443) */
+  // The desktop gives full mouse and keyboard control of the signed-in Chrome, so it needs the
+  // "owner" scope. The cookie holds a random session id (8 h), never the account token itself.
+  const desktopSessions = new Map<string, { tokenId: string | null; expires: number }>();
   app.get("/auth/desktop", async (req, reply) => {
-    const a = await authOf(req, cookie(req, "cp_desktop"));
-    if (!hasScope(a, "view")) return reply.code(401).send("Open the live desktop from the CloudPilot app.");
+    const sid = cookie(req, "cp_desktop");
+    const sess = sid ? desktopSessions.get(sid) : undefined;
+    if (!sess || sess.expires < Date.now() || (sess.tokenId && control.isRevoked(sess.tokenId))) {
+      if (sid) desktopSessions.delete(sid);
+      return reply.code(401).send("Open the live desktop from the CloudPilot app.");
+    }
     idle.touch();
     return reply.code(200).send("ok");
   });
+  // The app asks for a one-time ticket (with its token in the header), then opens
+  // /desktop/login?ticket=… so no long-lived token ends up in a URL or browser history.
+  const desktopTickets = new Map<string, { tokenId: string | null; expires: number }>();
+  app.post("/desktop/ticket", { onRequest: guard("owner") }, async (req) => {
+    const a = await authOf(req);
+    for (const [k, v] of desktopTickets) if (v.expires < Date.now()) desktopTickets.delete(k);
+    const ticket = randomBytes(24).toString("base64url");
+    desktopTickets.set(ticket, { tokenId: a?.kind === "scoped" ? a.claims.id : null, expires: Date.now() + 60_000 });
+    return { url: `https://${cfg.fqdn}/desktop/login?ticket=${ticket}` };
+  });
   app.get("/desktop/login", async (req, reply) => {
-    const token = bearerOf(req);
-    if (!hasScope(await authOf(req, token), "view")) return reply.code(401).send({ error: "Invalid token" });
-    reply.header(
-      "set-cookie",
-      `cp_desktop=${encodeURIComponent(token!)}; Domain=${cfg.fqdn}; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax`,
-    );
+    const ticket = (req.query as { ticket?: string }).ticket ?? "";
+    const t = desktopTickets.get(ticket);
+    desktopTickets.delete(ticket); // single use
+    if (!t || t.expires < Date.now() || (t.tokenId && control.isRevoked(t.tokenId)))
+      return reply.code(401).send({ error: "This desktop link has expired. Open the live desktop from the app again." });
+    for (const [k, v] of desktopSessions) if (v.expires < Date.now()) desktopSessions.delete(k);
+    const sid = randomBytes(32).toString("base64url");
+    desktopSessions.set(sid, { tokenId: t.tokenId, expires: Date.now() + 8 * 3600_000 });
+    reply.header("set-cookie", `cp_desktop=${sid}; Domain=${cfg.fqdn}; Path=/; Max-Age=28800; Secure; HttpOnly; SameSite=Lax`);
+    reply.header("referrer-policy", "no-referrer");
     return reply.redirect(`https://${cfg.fqdn}:8443/`);
   });
 
   /* ------------------------------------------------------------ status */
-  app.get("/status", { preHandler: guard("view") }, async () => {
+  app.get("/status", { onRequest: guard("view") }, async () => {
     const fs = await statfs(cfg.dataDir).catch(() => null);
     return {
       bot: bot.state,
@@ -120,27 +148,27 @@ export async function buildServer(d: ServerDeps) {
       google: await d.google.status(),
     };
   });
-  app.post("/keep-on", { preHandler: guard("machine") }, async (req) => {
+  app.post("/keep-on", { onRequest: guard("machine") }, async (req) => {
     const { hours } = z.object({ hours: z.number().min(0).max(12) }).parse(req.body);
     idle.keepOnUntil = Date.now() + hours * 3600_000;
     return idle.status();
   });
 
   /* ------------------------------------------------------------ bot */
-  app.get("/bot/state", { preHandler: guard("view") }, async () => bot.state);
-  app.post("/bot/command", { preHandler: guard("meetings") }, async (req) => bot.command(BotCommand.parse(req.body)));
-  app.post("/bot/join", { preHandler: guard("meetings") }, async (req) => {
+  app.get("/bot/state", { onRequest: guard("view") }, async () => bot.state);
+  app.post("/bot/command", { onRequest: guard("meetings") }, async (req) => bot.command(BotCommand.parse(req.body)));
+  app.post("/bot/join", { onRequest: guard("meetings") }, async (req) => {
     const { meetingId } = z.object({ meetingId: z.string() }).parse(req.body);
     await control.sync().catch(() => undefined);
     void d.joinMeeting(meetingId);
     return { ok: true };
   });
-  app.post("/bot/signin", { preHandler: guard("owner") }, async (req) => {
+  app.post("/bot/signin", { onRequest: guard("owner") }, async (req) => {
     const { url } = z.object({ url: z.string().url().optional() }).parse(req.body ?? {});
     await bot.openForSignIn(url);
     return { ok: true, desktop: `https://${cfg.fqdn}:8443/` };
   });
-  app.get("/bot/preview.jpg", { preHandler: guard("view") }, async (_req, reply) => {
+  app.get("/bot/preview.jpg", { onRequest: guard("view") }, async (_req, reply) => {
     const img = await bot.preview();
     if (!img) return reply.code(404).send({ error: "No meeting open" });
     return reply.header("content-type", "image/jpeg").header("cache-control", "no-store").send(img);
@@ -179,7 +207,7 @@ export async function buildServer(d: ServerDeps) {
     return id;
   };
 
-  app.get("/meetings/recent", { preHandler: guard("meetings") }, async () => {
+  app.get("/meetings/recent", { onRequest: guard("meetings") }, async () => {
     const ids = await readdir(meetingsDir).catch(() => [] as string[]);
     const out = [];
     for (const id of ids) {
@@ -191,16 +219,16 @@ export async function buildServer(d: ServerDeps) {
     }
     return out.sort((a, b) => +b.modifiedAt - +a.modifiedAt);
   });
-  app.get("/meetings/:id/screenshots", { preHandler: guard("meetings") }, async (req) => {
+  app.get("/meetings/:id/screenshots", { onRequest: guard("meetings") }, async (req) => {
     const { id } = req.params as { id: string };
     return JSON.parse(await readFile(join(meetingsDir, safeId(id), "shots.json"), "utf8").catch(() => "[]"));
   });
-  app.get("/meetings/:id/files/:file", { preHandler: guard("meetings") }, async (req, reply) => {
+  app.get("/meetings/:id/files/:file", { onRequest: guard("meetings") }, async (req, reply) => {
     const { id, file } = req.params as { id: string; file: string };
     if (!/^[\w.-]+$/.test(file)) return reply.code(400).send({ error: "bad file" });
     return sendFile(reply, req, join(meetingsDir, safeId(id), file));
   });
-  app.post("/meetings/:id/deliver", { preHandler: guard("meetings") }, async (req) => {
+  app.post("/meetings/:id/deliver", { onRequest: guard("meetings") }, async (req) => {
     const { id } = req.params as { id: string };
     const meeting = control.meetings.find((m) => m.id === id);
     if (!meeting) throw Object.assign(new Error("Meeting not in the current schedule"), { statusCode: 404 });
@@ -218,8 +246,8 @@ export async function buildServer(d: ServerDeps) {
   });
 
   /* ------------------------------------------------------------ settings & integrations */
-  app.get("/settings", { preHandler: guard("owner") }, async () => redact(await d.settings.read()));
-  app.put("/settings", { preHandler: guard("owner") }, async (req) => {
+  app.get("/settings", { onRequest: guard("owner") }, async () => redact(await d.settings.read()));
+  app.put("/settings", { onRequest: guard("owner") }, async (req) => {
     const cur = await d.settings.read();
     const patch = Settings.partial().parse(req.body);
     // Keep secrets when the client sends back the redacted placeholder.
@@ -230,7 +258,7 @@ export async function buildServer(d: ServerDeps) {
     d.onSettings?.(next);
     return redact(next);
   });
-  app.post("/settings/static-image", { preHandler: guard("owner") }, async (req) => {
+  app.post("/settings/static-image", { onRequest: guard("owner"), bodyLimit: 15 * 1024 * 1024 }, async (req) => {
     const buf = req.body as Buffer;
     if (!Buffer.isBuffer(buf) || buf.length < 100) throw Object.assign(new Error("Send image bytes"), { statusCode: 400 });
     const ext = req.headers["content-type"] === "image/png" ? ".png" : ".jpg";
@@ -240,7 +268,7 @@ export async function buildServer(d: ServerDeps) {
     await d.settings.write({ ...cur, staticImageFile: file });
     return { ok: true };
   });
-  app.post("/push/register", { preHandler: guard("meetings") }, async (req) => {
+  app.post("/push/register", { onRequest: guard("meetings") }, async (req) => {
     const { token } = z.object({ token: z.string().startsWith("ExponentPushToken[") }).parse(req.body);
     const cur = await d.settings.read();
     if (!cur.pushTokens.includes(token)) await d.settings.write({ ...cur, pushTokens: [...cur.pushTokens, token].slice(-5) });
@@ -248,8 +276,8 @@ export async function buildServer(d: ServerDeps) {
   });
 
   const oauthStates = new Map<string, number>();
-  app.get("/google/status", { preHandler: guard("owner") }, async () => d.google.status());
-  app.post("/google/connect", { preHandler: guard("owner") }, async () => {
+  app.get("/google/status", { onRequest: guard("owner") }, async () => d.google.status());
+  app.post("/google/connect", { onRequest: guard("owner") }, async () => {
     const state = crypto.randomUUID();
     oauthStates.set(state, Date.now());
     return { url: await d.google.authUrl(state) };
@@ -263,41 +291,33 @@ export async function buildServer(d: ServerDeps) {
     await d.google.handleCallback(q.code);
     return reply.type("text/html").send(page("Google connected ✅ You can close this tab."));
   });
-  app.post("/google/disconnect", { preHandler: guard("owner") }, async () => {
+  app.post("/google/disconnect", { onRequest: guard("owner") }, async () => {
     await d.google.disconnect();
     return { ok: true };
   });
 
   /* ------------------------------------------------------------ files */
-  const roots = [cfg.home, cfg.dataDir];
-  const resolvePath = (p: string) => {
-    const full = normalize(isAbsolute(p) ? p : resolve(cfg.home, p));
-    if (!roots.some((r) => full === r || full.startsWith(r + "/") || full.startsWith(r + "\\")))
-      throw Object.assign(new Error("Path outside allowed roots"), { statusCode: 403 });
-    return full;
-  };
-  app.get("/files", { preHandler: guard("files") }, async (req, reply) => {
-    const p = resolvePath((req.query as { path?: string }).path ?? cfg.home);
-    const s = await stat(p);
-    if (!s.isDirectory()) return sendFile(reply, req, p, true);
-    const entries = await readdir(p, { withFileTypes: true });
-    return Promise.all(
-      entries.map(async (e) => {
-        const st = await stat(join(p, e.name)).catch(() => null);
-        return { name: e.name, dir: e.isDirectory(), size: st?.size ?? 0, modifiedAt: st?.mtime ?? null };
-      }),
-    );
+  // Everything here runs as the unprivileged sandbox user, so a link with the "files"
+  // scope can't reach the agent's secrets, the Chrome sign-ins or /data.
+  const sandbox: Sandbox = { user: cfg.aiUser, home: cfg.aiHome };
+  const sfs = new SandboxFs(sandbox);
+  app.get("/files", { onRequest: guard("files") }, async (req, reply) => {
+    const p = sfs.resolve((req.query as { path?: string }).path ?? sandbox.home);
+    const s = await sfs.stat(p);
+    if (s.type === "dir") return sfs.list(p);
+    if (s.type !== "file") return reply.code(400).send({ error: "Not a file" });
+    const name = posix.basename(p).replace(/["\\\r\n]/g, "_");
+    reply.header("content-type", "application/octet-stream").header("content-length", s.size);
+    reply.header("content-disposition", `attachment; filename="${name}"`).header("x-content-type-options", "nosniff");
+    return reply.send(sfs.stream(p));
   });
-  app.put("/files", { preHandler: guard("files") }, async (req) => {
-    const p = resolvePath((req.query as { path?: string }).path ?? "");
-    await mkdir(dirname(p), { recursive: true });
-    await writeFile(p, req.body as Buffer);
+  app.put("/files", { onRequest: guard("files"), bodyLimit: 512 * 1024 * 1024 }, async (req) => {
+    const p = sfs.resolve((req.query as { path?: string }).path ?? "");
+    await sfs.write(p, req.body as Buffer);
     return { ok: true, path: p };
   });
-  app.delete("/files", { preHandler: guard("files") }, async (req) => {
-    const p = resolvePath((req.query as { path?: string }).path ?? "");
-    if (roots.includes(p)) throw Object.assign(new Error("Refusing to delete a root"), { statusCode: 400 });
-    await rm(p, { recursive: true, force: true });
+  app.delete("/files", { onRequest: guard("files") }, async (req) => {
+    await sfs.remove(sfs.resolve((req.query as { path?: string }).path ?? ""));
     return { ok: true };
   });
 
@@ -307,12 +327,19 @@ export async function buildServer(d: ServerDeps) {
     if (!hasScope(a, "terminal")) return socket.close(4401, "unauthorized");
     const pty = await import("node-pty");
     const release = idle.hold("terminal");
-    const sh = pty.spawn("bash", ["-l"], {
+    // Your own devices get the admin shell; AI and shared links get the sandbox user.
+    // Neither inherits the agent's environment (which holds the signing key).
+    const asOwner = hasScope(a, "owner") || !sandbox.user;
+    const home = asOwner ? cfg.home : sandbox.home;
+    const [file, args]: [string, string[]] = asOwner
+      ? ["bash", ["-l"]]
+      : ["sudo", ["-n", "-u", sandbox.user, "-H", "--preserve-env=TERM", "--", "bash", "-lc", "cd ~ && exec bash -l"]];
+    const sh = pty.spawn(file, args, {
       name: "xterm-256color",
       cols: 100,
       rows: 30,
-      cwd: cfg.home,
-      env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+      cwd: asOwner ? home : "/",
+      env: cleanEnv(home, { TERM: "xterm-256color" }),
     });
     sh.onData((data) => socket.readyState === 1 && socket.send(data));
     sh.onExit(() => socket.close());
@@ -333,15 +360,15 @@ export async function buildServer(d: ServerDeps) {
   });
 
   /* ------------------------------------------------------------ meeting accounts (Teams / Zoom / Google) */
-  app.get("/accounts", { preHandler: guard("meetings") }, async () => d.accounts.list());
-  app.post("/accounts/:platform/check", { preHandler: guard("meetings") }, async (req) =>
+  app.get("/accounts", { onRequest: guard("meetings") }, async () => d.accounts.list());
+  app.post("/accounts/:platform/check", { onRequest: guard("meetings") }, async (req) =>
     d.accounts.check(AccountPlatform.parse((req.params as { platform: string }).platform)),
   );
-  app.post("/accounts/:platform/signin", { preHandler: guard("owner") }, async (req) => {
+  app.post("/accounts/:platform/signin", { onRequest: guard("owner") }, async (req) => {
     await d.accounts.signIn(AccountPlatform.parse((req.params as { platform: string }).platform));
     return { ok: true };
   });
-  app.post("/accounts/:platform/signout", { preHandler: guard("owner") }, async (req) => {
+  app.post("/accounts/:platform/signout", { onRequest: guard("owner") }, async (req) => {
     await d.accounts.signOut(AccountPlatform.parse((req.params as { platform: string }).platform));
     return { ok: true };
   });
@@ -349,7 +376,7 @@ export async function buildServer(d: ServerDeps) {
   /* ------------------------------------------------------------ type into the desktop from the phone */
   const x11 = new X11(cfg.display);
   const KEYS = ["Return", "Tab", "BackSpace", "Escape", "ctrl+a", "ctrl+v", "ctrl+l", "F5", "Up", "Down", "Left", "Right"] as const;
-  app.post("/desktop/type", { preHandler: guard("owner") }, async (req) => {
+  app.post("/desktop/type", { onRequest: guard("owner") }, async (req) => {
     // Text is typed once into whatever field has focus and is never stored or logged.
     const { text, enter } = z.object({ text: z.string().max(2000), enter: z.boolean().default(false) }).parse(req.body);
     idle.touch();
@@ -357,7 +384,7 @@ export async function buildServer(d: ServerDeps) {
     if (enter) await x11.key("Return");
     return { ok: true };
   });
-  app.post("/desktop/key", { preHandler: guard("owner") }, async (req) => {
+  app.post("/desktop/key", { onRequest: guard("owner") }, async (req) => {
     const { key } = z.object({ key: z.enum(KEYS) }).parse(req.body);
     idle.touch();
     await x11.key(key);
@@ -365,7 +392,7 @@ export async function buildServer(d: ServerDeps) {
   });
 
   /* ------------------------------------------------------------ AI activity: watch & control */
-  app.get("/activity", { preHandler: guard("view") }, async () => ({
+  app.get("/activity", { onRequest: guard("view") }, async () => ({
     entries: d.activity.list(),
     pausedUntil: d.activity.paused ? new Date(d.activity.pausedUntil).toISOString() : null,
   }));
@@ -375,8 +402,8 @@ export async function buildServer(d: ServerDeps) {
     d.activity.on("event", on);
     socket.on("close", () => d.activity.off("event", on));
   });
-  app.post("/activity/:id/kill", { preHandler: guard("owner") }, async (req) => ({ killed: d.activity.kill((req.params as { id: string }).id) }));
-  app.post("/ai/pause", { preHandler: guard("owner") }, async (req) => {
+  app.post("/activity/:id/kill", { onRequest: guard("owner") }, async (req) => ({ killed: d.activity.kill((req.params as { id: string }).id) }));
+  app.post("/ai/pause", { onRequest: guard("owner") }, async (req) => {
     const { minutes } = z.object({ minutes: z.number().min(0).max(24 * 60) }).parse(req.body);
     d.activity.pause(minutes);
     return { pausedUntil: d.activity.paused ? new Date(d.activity.pausedUntil).toISOString() : null };
@@ -391,7 +418,7 @@ export async function buildServer(d: ServerDeps) {
       a?.kind === "scoped"
         ? { id: a.claims.id, label: control.labels.get(a.claims.id) ?? `Link ${a.claims.id}` }
         : { id: "owner", label: "Owner key" };
-    const server = buildMcpServer({ home: cfg.home, fqdn: cfg.fqdn, onActivity: () => idle.touch(), activity: d.activity, actor });
+    const server = buildMcpServer({ sandbox, fqdn: cfg.fqdn, onActivity: () => idle.touch(), activity: d.activity, actor });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     reply.hijack();
     reply.raw.on("close", () => {

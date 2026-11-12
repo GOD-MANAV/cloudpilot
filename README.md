@@ -75,6 +75,8 @@ With an $8/month budget that is roughly **140 hours of runtime a month**.
 
 CloudPilot joins meetings **as you, transparently**. It deliberately has **no "play a pre-recorded video as my camera" mode**. While you're away it shows camera-off or a still image, and when you want to be seen you go live with your real camera. Follow your organisation's and each platform's rules on recording, and tell participants when you record. See [docs/ETHICS.md](docs/ETHICS.md).
 
+**Security:** each deployment generates its own keys; the repository holds no secrets or personal data. AI links run as an unprivileged user that cannot touch your meeting sign-ins. See [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Development
 
 ```bash

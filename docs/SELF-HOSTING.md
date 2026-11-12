@@ -74,14 +74,16 @@ Go to **App → AI Access → New link**. Pick the scopes (`mcp` is enough for c
   claude mcp add --transport http cloudpilot https://<fqdn>/mcp --header "Authorization: Bearer <token>"
   ```
 - **Clients that can't set headers** (for example a claude.ai custom connector): use `https://<fqdn>/mcp/<token>` as the URL.
-- **SSH:** add a key in the app, or use the web terminal.
+- **Terminal:** use the terminal in the app. SSH is closed by default; to open it for one address, re-run `CP_SSH_FROM=<your-ip>/32 bash infra/bootstrap.sh`.
+
+AI links run as the unprivileged `dev` user. They can build and test in `/home/dev` but cannot read your meeting sign-ins, Google tokens or the machine's keys. See [SECURITY.md](SECURITY.md).
 
 Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 
 ## 5. Day to day
 - **Start or stop** from the app. Meetings with *auto-join* start the VM 8 minutes early by themselves.
 - The VM deallocates after **20 idle minutes**. A meeting, an open terminal or live session, or a busy CPU counts as activity. It also shuts down at 02:00 as a safety net.
-- **Update the agent:** `ssh pilot@<fqdn> sudo cloudpilot-update`.
+- **Update the agent:** in the app's terminal, run `sudo cloudpilot-update`.
 
 ## Troubleshooting
 | Symptom | Fix |

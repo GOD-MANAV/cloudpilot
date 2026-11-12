@@ -344,8 +344,10 @@ export class CloudPilotClient {
   }
 
   /** Opens the live desktop (sets a cookie, then redirects to :8443). */
-  desktopUrl() {
-    return this.agentLink("/desktop/login");
+  /** A one-time, 60-second link to the live desktop, so no long-lived token lands in browser history. */
+  async desktopUrl(): Promise<string> {
+    const { url } = await this.agent(z.object({ url: z.string() }), "/desktop/ticket", { method: "POST", body: "{}" });
+    return url;
   }
 
   /* ---------------- login ---------------- */

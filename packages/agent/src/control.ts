@@ -58,8 +58,13 @@ export class ControlLink {
     }
   }
 
+  isRevoked(id: string): boolean {
+    return this.revoked.has(id);
+  }
+
   /** Authenticate a bearer token presented to the agent. */
   auth(bearer: string | null | undefined): Promise<AuthResult> {
-    return authenticate(bearer, this.cfg.ownerTokenSha256, this.cfg.signingKey, (id) => this.revoked.has(id));
+    // The raw owner key is only for signing in (with the authenticator code) at the control plane.
+    return authenticate(bearer, this.cfg.ownerTokenSha256, this.cfg.signingKey, (id) => this.revoked.has(id), false);
   }
 }

@@ -220,7 +220,11 @@ describe("device login (owner key + authenticator code)", () => {
     expect(info.label).toBe("Phone · Pixel");
     const st = await login.handle({ method: "GET", path: "/vm/status", headers: { authorization: `Bearer ${token}` } });
     expect(st.status).toBe(200);
-    await login.handle({ method: "DELETE", path: `/tokens/${info.id}`, headers: { authorization: `Bearer ${OWNER}` } });
+    // the owner key alone is not a credential once an authenticator is configured
+    expect((await login.handle({ method: "GET", path: "/vm/status", headers: { authorization: `Bearer ${OWNER}` } })).status).toBe(401);
+    // a code can't be replayed
+    expect((await go(OWNER, code)).status).toBe(401);
+    await login.handle({ method: "DELETE", path: `/tokens/${info.id}`, headers: { authorization: `Bearer ${token}` } });
     expect((await login.handle({ method: "GET", path: "/vm/status", headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
     for (let i = 0; i < 5; i++) await go(OWNER, "111111");
     expect((await go(OWNER, code)).status).toBe(429);

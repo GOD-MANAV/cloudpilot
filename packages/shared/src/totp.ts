@@ -56,10 +56,21 @@ export async function totpAt(secretB32: string, timeMs: number, step = 30): Prom
 
 /** Accepts the current code and one step either side (clock drift). */
 export async function verifyTotp(secretB32: string, code: string, nowMs = Date.now()): Promise<boolean> {
+  return (await totpStep(secretB32, code, nowMs)) !== null;
+}
+
+/**
+ * The 30-second time step a valid code belongs to (±1 step for clock drift), or
+ * null. Callers remember the last accepted step so a code can't be replayed.
+ */
+export async function totpStep(secretB32: string, code: string, nowMs = Date.now()): Promise<number | null> {
   const c = code.replace(/\s/g, "");
-  if (!/^\d{6}$/.test(c)) return false;
-  for (const d of [-1, 0, 1]) if ((await totpAt(secretB32, nowMs + d * 30_000)) === c) return true;
-  return false;
+  if (!/^\d{6}$/.test(c)) return null;
+  for (const d of [-1, 0, 1]) {
+    const t = nowMs + d * 30_000;
+    if ((await totpAt(secretB32, t)) === c) return Math.floor(t / 30_000);
+  }
+  return null;
 }
 
 export function otpauthUri(secretB32: string, account: string, issuer = "CloudPilot"): string {

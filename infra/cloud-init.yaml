@@ -44,6 +44,33 @@ write_files:
       CP_KASM_URL=http://127.0.0.1:6901
       CP_CHROME_PATH=/usr/bin/google-chrome-stable
       CP_CHROME_PROFILE=/data/chrome-profile
+      CP_AI_USER=dev
+
+  # AI links and shared terminals run as "dev": no sudo, no docker group, no access to
+  # /data (meeting sign-ins, Google tokens) or to the agent's secrets.
+  - path: /etc/sudoers.d/90-cloudpilot-dev
+    permissions: "0440"
+    content: |
+      __ADMIN__ ALL=(dev) NOPASSWD: ALL
+
+  # "dev" may not reach the Azure instance metadata service or the wire server, so it can't
+  # borrow the VM's managed identity (which can stop or resize this VM).
+  - path: /etc/systemd/system/cloudpilot-firewall.service
+    content: |
+      [Unit]
+      Description=CloudPilot: keep the sandbox user away from Azure metadata
+      Before=network-pre.target
+      Wants=network-pre.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner dev -j REJECT
+      ExecStart=/usr/sbin/iptables -I OUTPUT -d 168.63.129.16 -m owner --uid-owner dev -j REJECT
+      ExecStart=/usr/sbin/iptables -I OUTPUT -d 127.0.0.1 -p tcp --dport 6901 -m owner --uid-owner dev -j REJECT
+
+      [Install]
+      WantedBy=multi-user.target
 
   - path: /etc/caddy/Caddyfile
     content: |
@@ -169,7 +196,12 @@ runcmd:
   - apt-get install -y /tmp/kasmvnc.deb
   - usermod -aG ssl-cert,docker __ADMIN__
   # --- secrets generated on the box ---
-  - mkdir -p /etc/cloudpilot /data && chown __ADMIN__:__ADMIN__ /data
+  - mkdir -p /etc/cloudpilot /data && chown __ADMIN__:__ADMIN__ /data && chmod 700 /data
+  - chmod 750 /home/__ADMIN__
+  # --- sandbox user for AI work ---
+  - id dev >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --user-group dev
+  - chmod 750 /home/dev
+  - systemctl daemon-reload && systemctl enable --now cloudpilot-firewall
   - |
     set -e
     KASM_PW=$(openssl rand -hex 16)

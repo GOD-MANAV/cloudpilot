@@ -73,7 +73,7 @@ az group create -n "$RG" -l "$LOCATION" -o none
 OUT=$(az deployment group create -g "$RG" -n cloudpilot \
   --template-file "$ROOT/infra/main.bicep" \
   --parameters location="$LOCATION" prefix="$PREFIX" dnsLabel="$DNS_LABEL" vmSize="$VM_SIZE" \
-               sshPublicKey="$(cat "$SSH_PUB")" ownerTokenSha256="$OWNER_SHA" signingKey="$SIGNING_KEY" totpSecret="$TOTP_SECRET" \
+               sshPublicKey="$(cat "$SSH_PUB")" ownerTokenSha256="$OWNER_SHA" signingKey="$SIGNING_KEY" totpSecret="$TOTP_SECRET" sshAllowFrom="${CP_SSH_FROM:-}" \
                agentRepo="$REPO" agentRef="$REF" budgetUsd="$BUDGET_USD" budgetEmail="$BUDGET_EMAIL" \
                autoShutdownTimeZone="$TZ_ID" \
   --query properties.outputs -o json)
@@ -110,7 +110,7 @@ bold "✅ CloudPilot deployed"
 cat <<EOF
   Control URL : $CONTROL_URL
   Machine     : https://$FQDN
-  SSH         : ssh pilot@$FQDN
+  SSH         : closed by default (re-run with CP_SSH_FROM=<your-ip>/32 to open it); use the app's terminal
 
 EOF
 bold "Step A — add CloudPilot to your authenticator app (Google Authenticator, Aegis, 1Password…)"

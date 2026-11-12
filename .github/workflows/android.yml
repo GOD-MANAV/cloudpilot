@@ -39,7 +39,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       - name: Install dependencies
         run: npm ci
@@ -76,7 +76,7 @@ jobs:
           path: out/CloudPilot.apk
 
       - name: Publish to the "latest" release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: android-latest
           name: CloudPilot Android (latest)

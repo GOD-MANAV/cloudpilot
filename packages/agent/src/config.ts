@@ -13,6 +13,9 @@ export interface AgentConfig {
   chromePath: string;
   chromeProfile: string;
   idleMinutes: number;
+  /** Unprivileged user for AI links and shared terminals ("" = current user, for local dev). */
+  aiUser: string;
+  aiHome: string;
 }
 
 export function loadConfig(env = process.env): AgentConfig {
@@ -34,5 +37,7 @@ export function loadConfig(env = process.env): AgentConfig {
     chromePath: env.CP_CHROME_PATH ?? "/usr/bin/google-chrome-stable",
     chromeProfile: env.CP_CHROME_PROFILE ?? join(dataDir, "chrome-profile"),
     idleMinutes: Number(env.CP_IDLE_MINUTES ?? 20),
+    aiUser: env.CP_AI_USER ?? "",
+    aiHome: env.CP_AI_HOME ?? (env.CP_AI_USER ? `/home/${env.CP_AI_USER}` : homedir()),
   };
 }

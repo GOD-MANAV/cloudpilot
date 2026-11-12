@@ -65,6 +65,8 @@ export async function authenticate(
   ownerSha256: string,
   signingKey: string,
   isRevoked: (id: string) => boolean = () => false,
+  /** Accept the raw owner key as a bearer. Off whenever an authenticator code is required, so the key alone is not enough. */
+  allowRawOwner = true,
 ): Promise<AuthResult> {
   if (!bearer) return null;
   if (bearer.startsWith("cpt_")) {
@@ -72,6 +74,7 @@ export async function authenticate(
     if (!claims || isRevoked(claims.id)) return null;
     return { kind: "scoped", claims };
   }
+  if (!allowRawOwner) return null;
   return safeEqual(await sha256Hex(bearer), ownerSha256.toLowerCase()) ? { kind: "owner" } : null;
 }
 

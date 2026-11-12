@@ -1,13 +1,13 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import type { ChildProcess } from "node:child_process";
 import { cpus, freemem, loadavg, totalmem, uptime } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ActivityLog } from "./activity.js";
+import { SandboxFs, spawnAs, type Sandbox } from "./sandbox.js";
 
 export interface McpDeps {
-  home: string;
+  /** Unprivileged user that AI commands and file access run as. */
+  sandbox: Sandbox;
   fqdn: string;
   onActivity: () => void;
   /** Live activity feed shown in the app (optional in tests). */
@@ -19,13 +19,19 @@ const MAX_OUTPUT = 100_000;
 
 /** Run a shell command with a timeout; output is truncated for the model. */
 export function runCommand(
+  sandbox: Sandbox,
   cmd: string,
   cwd: string,
   timeoutSec: number,
   hooks: { onSpawn?: (p: ChildProcess) => void; onData?: (s: string) => void } = {},
 ): Promise<{ code: number | null; output: string; timedOut: boolean }> {
   return new Promise((res) => {
-    const p = spawn("bash", ["-lc", cmd], { cwd, env: { ...process.env, TERM: "dumb", CI: "1" } });
+    // `timeout` signals the whole process group, also when it is itself told to stop.
+    const p = spawnAs(
+      sandbox,
+      ["timeout", "-k", "5", String(timeoutSec), "bash", "-lc", 'cd -- "$1" || exit 1; eval "$2"', "_", cwd, cmd],
+      { TERM: "dumb", CI: "1" },
+    );
     hooks.onSpawn?.(p);
     let out = "";
     let timedOut = false;
@@ -38,9 +44,12 @@ export function runCommand(
     p.stderr.on("data", add);
     const t = setTimeout(() => {
       timedOut = true;
-      p.kill("SIGKILL");
-    }, timeoutSec * 1000);
+      p.kill("SIGTERM");
+    }, (timeoutSec + 10) * 1000);
+    p.stdin.end();
+    p.on("error", (e) => add(Buffer.from(String(e))));
     p.on("close", (code) => {
+      if (code === 124) timedOut = true;
       clearTimeout(t);
       const trimmed = out.length > MAX_OUTPUT ? `${out.slice(0, MAX_OUTPUT / 2)}\n…[truncated]…\n${out.slice(-MAX_OUTPUT / 2)}` : out;
       res({ code, output: trimmed, timedOut });
@@ -55,7 +64,9 @@ const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
  * connectors, other MCP clients). Stateless: one server per HTTP request.
  */
 export function buildMcpServer(deps: McpDeps): McpServer {
-  const abs = (p: string) => (isAbsolute(p) ? p : resolve(deps.home, p));
+  const fs = new SandboxFs(deps.sandbox);
+  const abs = (p: string) => fs.resolve(p);
+  const home = deps.sandbox.home;
   const actor = deps.actor ?? { id: "owner", label: "Owner" };
   /** Log a tool call to the live feed; refuse while AI access is paused. */
   async function logged<R>(tool: string, summary: string, fn: (id: string | null) => Promise<R>, done?: (r: R) => { ok: boolean; code?: number | null; output?: string }): Promise<R> {
@@ -80,8 +91,8 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     { name: "cloudpilot", version: "0.1.0" },
     {
       instructions:
-        `You are connected to a CloudPilot Linux machine (${deps.fqdn}, Ubuntu 24.04, Node 22, Python 3, Docker, git). ` +
-        `Use run_command for builds/tests (it runs in bash -lc). Home is ${deps.home}. ` +
+        `You are connected to a CloudPilot Linux machine (${deps.fqdn}, Ubuntu 24.04, Node 22, Python 3, git). ` +
+        `Use run_command for builds/tests (it runs in bash -lc). Home is ${home}; you run as an unprivileged user without sudo. ` +
         "The machine auto-stops when idle; long jobs keep it awake.",
     },
   );
@@ -102,7 +113,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
         "run_command",
         command,
         (id) =>
-          runCommand(command, abs(cwd ?? deps.home), timeout_seconds, {
+          runCommand(deps.sandbox, command, abs(cwd ?? home), timeout_seconds, {
             onSpawn: (p) => {
               if (id) deps.activity?.attach(id, p);
             },
@@ -126,7 +137,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     },
     async ({ path, max_bytes }) => {
       deps.onActivity();
-      const buf = await logged("read_file", path, () => readFile(abs(path)));
+      const buf = await logged("read_file", path, () => fs.read(abs(path), max_bytes));
       return text(buf.subarray(0, max_bytes).toString("utf8") + (buf.length > max_bytes ? "\n…[truncated]" : ""));
     },
   );
@@ -140,10 +151,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     async ({ path, content }) => {
       deps.onActivity();
       const p = abs(path);
-      await logged("write_file", `${p} (${Buffer.byteLength(content)} bytes)`, async () => {
-        await mkdir(dirname(p), { recursive: true });
-        await writeFile(p, content);
-      });
+      await logged("write_file", `${p} (${Buffer.byteLength(content)} bytes)`, () => fs.write(p, Buffer.from(content)));
       return text(`wrote ${Buffer.byteLength(content)} bytes to ${p}`);
     },
   );
@@ -157,13 +165,8 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     async ({ path }) => {
       deps.onActivity();
       const p = abs(path);
-      const entries = await logged("list_directory", p, () => readdir(p, { withFileTypes: true }));
-      const lines = await Promise.all(
-        entries.slice(0, 500).map(async (e) => {
-          const s = await stat(join(p, e.name)).catch(() => null);
-          return `${e.isDirectory() ? "d" : "-"} ${String(s?.size ?? 0).padStart(10)}  ${e.name}`;
-        }),
-      );
+      const entries = await logged("list_directory", p, () => fs.list(p));
+      const lines = entries.slice(0, 500).map((e) => `${e.dir ? "d" : "-"} ${String(e.size).padStart(10)}  ${e.name}`);
       return text(lines.join("\n") || "(empty)");
     },
   );

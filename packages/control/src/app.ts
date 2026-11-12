@@ -13,7 +13,7 @@ import {
   sha256Hex,
   safeEqual,
   signToken,
-  verifyTotp,
+  totpStep,
   type AccessTokenInfo,
   type AuthResult,
   type TokenScope,
@@ -86,7 +86,8 @@ export function createApp(deps: AppDeps) {
     const h = req.headers["authorization"] ?? req.headers["Authorization"];
     const bearer = h?.startsWith("Bearer ") ? h.slice(7).trim() : null;
     const revoked = bearer?.startsWith("cpt_") ? await revokedIds() : new Set<string>();
-    const a = await authenticate(bearer, deps.ownerTokenSha256, deps.signingKey, (id) => revoked.has(id));
+    // With an authenticator configured, the owner key alone is never enough: sign in at /auth/login.
+    const a = await authenticate(bearer, deps.ownerTokenSha256, deps.signingKey, (id) => revoked.has(id), !deps.totpSecret);
     if (a?.kind === "scoped") {
       // best-effort lastUsedAt
       const t = (await store.listTokens()).find((x) => x.id === a.claims.id);
@@ -193,7 +194,7 @@ export function createApp(deps: AppDeps) {
         return { status: 201, body: m };
       }
       if (method === "POST" && seg[1] === "import-ics") {
-        const { icsUrl } = z.object({ icsUrl: z.string().url() }).parse(req.body);
+        const { icsUrl } = z.object({ icsUrl: IcsUrl }).parse(req.body);
         return ok(await importIcs(icsUrl));
       }
       const id = seg[1];
@@ -287,7 +288,9 @@ export function createApp(deps: AppDeps) {
     const lockUntil = Number((await store.getFlag("login-lock")) ?? 0);
     if (now().getTime() < lockUntil) throw new HttpError(429, "Too many attempts. Try again in a few minutes.");
     const keyOk = safeEqual(await sha256Hex(input.ownerToken), deps.ownerTokenSha256.toLowerCase());
-    const codeOk = !deps.totpSecret || (await verifyTotp(deps.totpSecret, input.code, now().getTime()));
+    const step = deps.totpSecret ? await totpStep(deps.totpSecret, input.code, now().getTime()) : 0;
+    const lastStep = Number((await store.getFlag("totp-last-step")) ?? -1);
+    const codeOk = step !== null && (!deps.totpSecret || step > lastStep); // each code works once
     if (!keyOk || !codeOk) {
       const fails = Number((await store.getFlag("login-fails")) ?? 0) + 1;
       await store.setFlag("login-fails", String(fails));
@@ -295,9 +298,11 @@ export function createApp(deps: AppDeps) {
         await store.setFlag("login-lock", String(now().getTime() + 15 * 60_000));
         await store.setFlag("login-fails", "0");
       }
-      throw new HttpError(401, keyOk ? "Wrong authenticator code" : "Wrong owner key");
+      // Same message either way, so a guess never learns which half was right.
+      throw new HttpError(401, "Wrong owner key or authenticator code (each code works once).");
     }
     await store.setFlag("login-fails", "0");
+    if (deps.totpSecret) await store.setFlag("totp-last-step", String(step));
     const created = now();
     const ttlHours = input.kind === "phone" ? 24 * 30 : 12;
     const expires = new Date(created.getTime() + ttlHours * 3600_000);
@@ -316,10 +321,13 @@ export function createApp(deps: AppDeps) {
   }
 
   async function importIcs(icsUrl: string): Promise<Meeting[]> {
+    if (!IcsUrl.safeParse(icsUrl).success) throw new HttpError(400, "Calendar link must be a public https:// URL");
     const f = deps.fetch ?? fetch;
-    const res = await f(icsUrl);
+    const res = await f(icsUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new HttpError(400, `Couldn't fetch calendar (${res.status})`);
-    const events = parseIcs(await res.text());
+    const body = await res.text();
+    if (body.length > 5_000_000) throw new HttpError(400, "Calendar file is too large");
+    const events = parseIcs(body);
     const t = now().getTime();
     const horizon = t + 14 * 24 * 3600_000;
     const out: Meeting[] = [];
@@ -420,6 +428,20 @@ export function createApp(deps: AppDeps) {
 }
 
 const ok = (body: unknown): Res => ({ status: 200, body });
+
+/** Calendar links are fetched by the control plane, so only allow public https hosts (no SSRF into Azure internals). */
+const IcsUrl = z
+  .string()
+  .url()
+  .refine((u) => {
+    const { protocol, hostname } = new URL(u);
+    if (protocol !== "https:") return false;
+    const h = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (h === "localhost" || h.endsWith(".internal") || h.endsWith(".local") || !h.includes(".") && !h.includes(":")) return false;
+    if (/^(0|10|127|169\.254|172\.(1[6-9]|2\d|3[01])|192\.168|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(h + ".")) return false;
+    if (h.includes(":")) return false; // IPv6 literals: not needed for calendars
+    return true;
+  }, "Calendar link must be a public https:// URL");
 const round = (n: number) => Math.round(n * 100) / 100;
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;

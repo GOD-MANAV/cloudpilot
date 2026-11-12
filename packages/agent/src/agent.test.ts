@@ -147,6 +147,8 @@ describe("HTTP server", async () => {
     chromePath: "",
     chromeProfile: "",
     idleMinutes: 20,
+    aiUser: "",
+    aiHome: home,
   };
   const idle = new IdleWatch(20, async () => undefined, async () => 0);
   const { ActivityLog } = await import("./activity.js");
@@ -164,33 +166,47 @@ describe("HTTP server", async () => {
     joinMeeting: async () => undefined,
   });
   const auth = (t: string) => ({ authorization: `Bearer ${t}` });
+  // what the app holds after signing in: a signed device token with the "owner" scope
+  const DEVICE = await signToken(KEY, { id: "dev_phone", expiresAt: 4e9, scopes: ["owner"] });
 
   it("health is public; everything else needs a token", async () => {
     expect((await app.inject({ url: "/health" })).statusCode).toBe(200);
     expect((await app.inject({ url: "/status" })).statusCode).toBe(401);
-    expect((await app.inject({ url: "/status", headers: auth(OWNER) })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/status", headers: auth(DEVICE) })).statusCode).toBe(200);
+    // the raw owner key is only for signing in (with the authenticator code), never a bearer
+    expect((await app.inject({ url: "/status", headers: auth(OWNER) })).statusCode).toBe(401);
   });
 
-  it("enforces scopes and keeps file access inside allowed roots", async () => {
+  it("rejects unauthenticated uploads before reading the body", async () => {
+    const r = await app.inject({
+      method: "PUT",
+      url: "/files?path=big.bin",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.alloc(3 * 1024 * 1024),
+    });
+    expect(r.statusCode).toBe(401);
+  });
+
+  it.skipIf(process.platform === "win32")("enforces scopes for file access (which runs as the sandbox user)", async () => {
     const viewer = await signToken(KEY, { id: "v", expiresAt: 4e9, scopes: ["view"] });
     expect((await app.inject({ url: "/files", headers: auth(viewer) })).statusCode).toBe(403);
     const put = await app.inject({
       method: "PUT",
       url: "/files?path=proj/hello.txt",
-      headers: { ...auth(OWNER), "content-type": "application/octet-stream" },
+      headers: { ...auth(DEVICE), "content-type": "application/octet-stream" },
       payload: Buffer.from("hi"),
     });
     expect(put.statusCode).toBe(200);
-    expect((await app.inject({ url: "/files?path=proj/hello.txt", headers: auth(OWNER) })).body).toBe("hi");
-    expect((await app.inject({ url: "/files?path=/etc/passwd", headers: auth(OWNER) })).statusCode).toBe(403);
-    expect((await app.inject({ url: "/files?path=../../etc/passwd", headers: auth(OWNER) })).statusCode).toBe(403);
+    expect((await app.inject({ url: "/files?path=proj/hello.txt", headers: auth(DEVICE) })).body).toBe("hi");
+    const list = (await app.inject({ url: "/files?path=proj", headers: auth(DEVICE) })).json() as { name: string }[];
+    expect(list.map((e) => e.name)).toEqual(["hello.txt"]);
   });
 
   it("redacts secrets in settings and preserves them on round-trip", async () => {
-    await app.inject({ method: "PUT", url: "/settings", headers: auth(OWNER), payload: { smtp: { host: "smtp.gmail.com", user: "u", pass: "secret" } } });
-    const got = (await app.inject({ url: "/settings", headers: auth(OWNER) })).json();
+    await app.inject({ method: "PUT", url: "/settings", headers: auth(DEVICE), payload: { smtp: { host: "smtp.gmail.com", user: "u", pass: "secret" } } });
+    const got = (await app.inject({ url: "/settings", headers: auth(DEVICE) })).json();
     expect(got.smtp.pass).toBe("••••");
-    await app.inject({ method: "PUT", url: "/settings", headers: auth(OWNER), payload: { smtp: got.smtp } });
+    await app.inject({ method: "PUT", url: "/settings", headers: auth(DEVICE), payload: { smtp: got.smtp } });
     const raw = JSON.parse(await readFile(join(home, "settings.json"), "utf8"));
     expect(raw.smtp.pass).toBe("secret");
   });
@@ -211,12 +227,19 @@ describe("HTTP server", async () => {
     }
   });
 
-  it("desktop login sets a host cookie and forward-auth accepts it", async () => {
+  it("desktop login needs the owner and sets a session cookie (not the token) that forward-auth accepts", async () => {
     const viewer = await signToken(KEY, { id: "v2", expiresAt: 4e9, scopes: ["view"] });
-    const r = await app.inject({ url: `/desktop/login?token=${viewer}` });
+    expect((await app.inject({ method: "POST", url: "/desktop/ticket", headers: auth(viewer) })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/desktop/login?token=${DEVICE}` })).statusCode).toBe(401); // tokens never go in the URL
+    const { url } = (await app.inject({ method: "POST", url: "/desktop/ticket", headers: auth(DEVICE) })).json() as { url: string };
+    const path = url.replace("https://box.example.com", "");
+    const r = await app.inject({ url: path });
     expect(r.statusCode).toBe(302);
+    expect((await app.inject({ url: path })).statusCode).toBe(401); // single use
     expect(r.headers.location).toBe("https://box.example.com:8443/");
     const c = String(r.headers["set-cookie"]).split(";")[0]!;
+    expect(c).not.toContain(DEVICE.slice(0, 20));
+    expect((await app.inject({ url: "/auth/desktop", headers: { cookie: "cp_desktop=forged" } })).statusCode).toBe(401);
     expect((await app.inject({ url: "/auth/desktop", headers: { cookie: c } })).statusCode).toBe(200);
     expect((await app.inject({ url: "/auth/desktop" })).statusCode).toBe(401);
   });
@@ -251,7 +274,7 @@ describe("auto-leave when people are leaving", async () => {
 });
 
 describe("AI activity feed", () => {
-  it("logs MCP calls with the link name, and blocks them while paused", async () => {
+  it.skipIf(process.platform === "win32")("logs MCP calls with the link name, and blocks them while paused", async () => {
     const { ActivityLog } = await import("./activity.js");
     const { buildMcpServer } = await import("./mcp.js");
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -259,7 +282,7 @@ describe("AI activity feed", () => {
     const log = new ActivityLog();
     const events: string[] = [];
     log.on("event", (e) => events.push(e.type));
-    const server = buildMcpServer({ home: dir, fqdn: "x", onActivity: () => undefined, activity: log, actor: { id: "t1", label: "Claude Code" } });
+    const server = buildMcpServer({ sandbox: { user: "", home: dir }, fqdn: "x", onActivity: () => undefined, activity: log, actor: { id: "t1", label: "Claude Code" } });
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "t", version: "1" });
     await Promise.all([server.connect(a), client.connect(b)]);

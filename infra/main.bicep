@@ -22,6 +22,9 @@ param adminUsername string = 'pilot'
 @secure()
 param sshPublicKey string
 
+@description('SSH stays closed unless you give an address to allow, e.g. 203.0.113.7/32. The app terminal works without it.')
+param sshAllowFrom string = ''
+
 @description('SHA-256 (hex) of the owner token. The plain token is never stored in Azure.')
 @secure()
 param ownerTokenSha256 string
@@ -74,7 +77,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   location: location
   tags: tags
   properties: {
-    securityRules: [
+    securityRules: concat([
       {
         name: 'https'
         properties: {
@@ -101,6 +104,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           destinationPortRange: '32768-60999' // Chrome's ephemeral range: phone → meeting live takeover (DTLS-encrypted)
         }
       }
+    ], empty(sshAllowFrom) ? [] : [
       {
         name: 'ssh'
         properties: {
@@ -108,13 +112,13 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: '*' // key-only auth; tighten to your IP if you like
+          sourceAddressPrefix: sshAllowFrom
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '22'
         }
       }
-    ]
+    ])
   }
 }
 
