@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace packages/shared
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint & build Bicep
+        run: |
+          az bicep install
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+      - name: Validate cloud-init YAML
+        run: python3 -c "import yaml; yaml.safe_load(open('infra/cloud-init.yaml'))"
+      - name: ShellCheck bootstrap
+        run: shellcheck -S warning infra/bootstrap.sh packages/control/pack.sh

@@ -1,0 +1,23 @@
+# Builds the Android APK in Expo's cloud (EAS). Needs the EXPO_TOKEN repo secret.
+# Run manually, or push a tag like v0.1.0.
+name: Android APK (EAS)
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run build --workspace packages/shared
+      - working-directory: apps/mobile
+        run: eas build --platform android --profile preview --non-interactive --no-wait
