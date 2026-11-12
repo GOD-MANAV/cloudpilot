@@ -10,6 +10,9 @@ import {
   type CreateTokenInput,
   type MeetingInput,
   type VmSize,
+  VmProfiles,
+  type VmProfilesPatch,
+  type StartPurpose,
 } from "./schemas.js";
 
 export const CreatedToken = z.object({ info: AccessTokenInfo, token: z.string() });
@@ -188,8 +191,15 @@ export class CloudPilotClient {
     this.agentBase = s.power === "running" && s.fqdn ? `https://${s.fqdn}` : null;
     return s;
   }
-  vmStart() {
-    return this.ctl(VmStatus, "/vm/start", { method: "POST" });
+  /** Starts the machine at the size set for `purpose` (default: AI and dev tasks). */
+  vmStart(purpose: StartPurpose = "dev") {
+    return this.ctl(VmStatus, "/vm/start", { method: "POST", body: JSON.stringify({ purpose }) });
+  }
+  vmProfiles() {
+    return this.ctl(VmProfiles, "/vm/profiles");
+  }
+  setVmProfiles(patch: VmProfilesPatch) {
+    return this.ctl(VmProfiles, "/vm/profiles", { method: "PUT", body: JSON.stringify(patch) });
   }
   vmStop() {
     this.agentBase = null;

@@ -5,6 +5,8 @@ import {
   PUBLIC_IP_USD_PER_HOUR,
   VM_SIZES,
   VmSize,
+  StartPurpose,
+  type VmProfiles,
   authenticate,
   detectPlatform,
   hasScope,
@@ -128,10 +130,38 @@ export function createApp(deps: AppDeps) {
     return deps.budgetUsd > 0 && u.usd >= deps.budgetUsd && override !== monthOf(d);
   }
 
-  async function startVm(): Promise<VmStatus> {
+  /** Per-purpose sizes; unset ones mean "the size the machine was deployed with". */
+  async function profiles(): Promise<VmProfiles> {
+    let deployed = await store.getFlag("vm-deployed-size");
+    if (!deployed) {
+      deployed = (await vm.status()).size;
+      await store.setFlag("vm-deployed-size", deployed);
+    }
+    const saved = ProfilesPatch.safeParse(JSON.parse((await store.getFlag("vm-profiles")) ?? "{}"));
+    const p = saved.success ? saved.data : {};
+    return { dev: p.dev ?? deployed, meetings: p.meetings ?? deployed, deployed };
+  }
+
+  /**
+   * Starts the machine at the size chosen for `purpose`. A running machine keeps its size:
+   * the new size applies from the next start. If Azure refuses a meeting size (quota), the
+   * meeting still starts at the current size; for dev the error is reported.
+   */
+  async function startVm(purpose: StartPurpose): Promise<VmStatus> {
     if (await overBudget()) throw new HttpError(402, "Monthly budget reached. Override it in Settings to start anyway.");
     const s = await vm.status();
-    if (s.power !== "running" && s.power !== "starting") await vm.start();
+    if (s.power === "running" || s.power === "starting") return { ...s, agentHealthy: false };
+    const want = (await profiles())[purpose];
+    if (s.size !== want && (s.power === "deallocated" || s.power === "stopped")) {
+      try {
+        await vm.resize(want);
+      } catch (e) {
+        console.error(e);
+        if (purpose === "dev")
+          throw new HttpError(409, `Azure couldn't switch to ${want}. Your subscription may not have quota for it; pick a smaller size under Settings → Advanced.`);
+      }
+    }
+    await vm.start();
     return { ...(await vm.status()), agentHealthy: false };
   }
 
@@ -148,7 +178,23 @@ export function createApp(deps: AppDeps) {
     if (seg[0] === "vm") {
       need(a, "machine");
       if (method === "GET" && seg[1] === "status") return ok(await fullStatus());
-      if (method === "POST" && seg[1] === "start") return ok(await startVm());
+      if (method === "POST" && seg[1] === "start") {
+        const { purpose } = z.object({ purpose: StartPurpose.default("dev") }).parse(req.body ?? {});
+        return ok(await startVm(purpose));
+      }
+      if (seg[1] === "profiles" && seg.length === 2) {
+        if (method === "GET") return ok(await profiles());
+        if (method === "PUT") {
+          need(a, "owner");
+          const patch = ProfilesPatch.parse(req.body);
+          const cur = await profiles();
+          for (const size of Object.values(patch))
+            if (size && size !== cur.deployed && !VmSize.safeParse(size).success) throw new HttpError(400, `Unknown size ${size}`);
+          const next = { dev: cur.dev, meetings: cur.meetings, ...stripUndefined(patch) };
+          await store.setFlag("vm-profiles", JSON.stringify(next));
+          return ok({ ...next, deployed: cur.deployed });
+        }
+      }
       if (method === "POST" && seg[1] === "stop") {
         await vm.deallocate();
         return ok({ ...(await vm.status()), agentHealthy: false });
@@ -217,7 +263,7 @@ export function createApp(deps: AppDeps) {
       if (method === "POST" && seg[2] === "join-now") {
         const m = { ...existing, joinNowAt: now().toISOString(), status: "scheduled" as const };
         await store.putMeeting(m);
-        await startVm();
+        await startVm("meetings");
         return ok(m);
       }
     }
@@ -410,7 +456,7 @@ export function createApp(deps: AppDeps) {
     if (due.length && (s.power === "deallocated" || s.power === "stopped")) {
       if (await overBudget()) log.push("meeting due but budget reached");
       else {
-        await vm.start();
+        await startVm("meetings");
         log.push(`starting for ${due.map((m) => m.id).join(",")}`);
       }
     }
@@ -457,6 +503,7 @@ const IcsUrl = z
     if (h.includes(":")) return false; // IPv6 literals: not needed for calendars
     return true;
   }, "Calendar link must be a public https:// URL");
+const ProfilesPatch = z.object({ dev: z.string().max(64).optional(), meetings: z.string().max(64).optional() });
 const round = (n: number) => Math.round(n * 100) / 100;
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;

@@ -2,11 +2,27 @@ import { ACCENTS, VM_SIZES, type AgentSettings, type ThemeName, type VmSize } fr
 import { useEffect, useState } from "react";
 import { useApi, useAction, usePoll } from "../api";
 
+function SizeSelect({ label, value, deployed, disabled, onChange }: { label: string; value: string; deployed: string; disabled: boolean; onChange: (s: string) => void }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        {!(deployed in VM_SIZES) && <option value={deployed}>As set up ({deployed})</option>}
+        {Object.entries(VM_SIZES).map(([k, v]) => (
+          <option key={k} value={k}>
+            {v.label} · ${v.usdPerHour.toFixed(3)}/h{k === deployed ? " · as set up" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function Settings() {
   const { client, theme, accent, setTheme, setAccent, signOut } = useApi();
   const vm = usePoll(() => client!.vmStatus(), 20_000);
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
-  const stopped = vm.data?.power === "deallocated" || vm.data?.power === "stopped";
+  const profiles = usePoll(() => client!.vmProfiles(), 0);
   const settings = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
   const accounts = usePoll(running ? () => client!.accounts() : null, 0, [running]);
@@ -53,24 +69,40 @@ export function Settings() {
       <section className="card">
         <h2>Machine</h2>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <label className="field" style={{ minWidth: 260 }}>
-            <span>Size {stopped ? "" : "(stop the machine to change)"}</span>
-            <select
-              value={vm.data?.size ?? ""}
-              disabled={!stopped || busy}
-              onChange={(e) => run(async () => (await client!.vmResize(e.target.value as VmSize), vm.reload()), "Size changed")}
-            >
-              {Object.entries(VM_SIZES).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.label} — ${v.usdPerHour.toFixed(3)}/h
-                </option>
-              ))}
-            </select>
-          </label>
+          <span className="sub" style={{ flex: "1 1 220px" }}>
+            {vm.data ? `Current size: ${VM_SIZES[vm.data.size as VmSize]?.label ?? vm.data.size}` : ""}
+          </span>
           <button className="btn btn-secondary" disabled={busy} onClick={() => confirm("Allow starting past this month's budget?") && run(() => client!.overrideBudget(), "Budget override on for this month")}>
             Allow over budget this month
           </button>
         </div>
+        <details style={{ borderTop: "1px solid var(--surface2)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>Advanced: machine size</summary>
+          <span className="sub" style={{ display: "block", margin: "8px 0" }}>
+            The machine switches to the right size each time it starts. A running machine keeps its size until it next starts.
+          </span>
+          {profiles.data && (
+            <div className="grid">
+              <SizeSelect
+                label="When you start it (AI links, terminal, builds)"
+                value={profiles.data.dev}
+                deployed={profiles.data.deployed}
+                disabled={busy}
+                onChange={(dev) => run(async () => (await client!.setVmProfiles({ dev }), profiles.reload()), "Saved. Applies on next start")}
+              />
+              <SizeSelect
+                label="For meetings (default: the size it was set up with)"
+                value={profiles.data.meetings}
+                deployed={profiles.data.deployed}
+                disabled={busy}
+                onChange={(meetings) => run(async () => (await client!.setVmProfiles({ meetings }), profiles.reload()), "Saved. Applies on next start")}
+              />
+            </div>
+          )}
+          <span className="sub" style={{ display: "block", marginTop: 8 }}>
+            Bigger sizes use your budget faster. Azure for Students may refuse sizes above 4 vCPU without a quota increase; meetings then start at the current size.
+          </span>
+        </details>
       </section>
 
       {!running ? (

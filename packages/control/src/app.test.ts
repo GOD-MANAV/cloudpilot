@@ -112,6 +112,55 @@ describe("machine", () => {
     expect((await call("POST", "/vm/resize", { size: "Standard_D64s_v5" })).status).toBe(400);
   });
 
+  it("starts at the dev size for you and the meeting size for meetings", async () => {
+    const B2 = "Standard_B2als_v2";
+    expect((await call("GET", "/vm/profiles")).body).toEqual({ dev: B2, meetings: B2, deployed: B2 });
+    const r = await call("PUT", "/vm/profiles", { dev: "Standard_B4as_v2" });
+    expect(r.body).toEqual({ dev: "Standard_B4as_v2", meetings: B2, deployed: B2 });
+    expect((await call("PUT", "/vm/profiles", { dev: "Standard_D64s_v5" })).status).toBe(400);
+    // a scoped machine token can read the sizes but not change them
+    const t = ((await call("POST", "/tokens", { label: "ai", scopes: ["machine"], ttlHours: 1 })).body as { token: string }).token;
+    expect((await call("GET", "/vm/profiles", undefined, t)).status).toBe(200);
+    expect((await call("PUT", "/vm/profiles", { dev: "Standard_B2as_v2" }, t)).status).toBe(403);
+
+    await call("POST", "/vm/start");
+    expect(vm.size).toBe("Standard_B4as_v2");
+    expect(vm.calls).toEqual(["resize:Standard_B4as_v2", "start"]);
+    // already running: no resize, the size applies from the next start
+    await call("POST", "/vm/start", { purpose: "meetings" });
+    expect(vm.size).toBe("Standard_B4as_v2");
+
+    await call("POST", "/vm/stop");
+    await call("POST", "/meetings", meeting);
+    clock = new Date("2026-11-15T04:25:00Z");
+    await api.tick();
+    expect(vm.power).toBe("running");
+    expect(vm.size).toBe("Standard_B2als_v2");
+  });
+
+  it("defaults to the deployed size, even one outside the menu", async () => {
+    vm.size = "Standard_B2s";
+    expect((await call("GET", "/vm/profiles")).body).toEqual({ dev: "Standard_B2s", meetings: "Standard_B2s", deployed: "Standard_B2s" });
+    await call("POST", "/vm/start");
+    expect(vm.calls).toEqual(["start"]);
+    await call("POST", "/vm/stop");
+    expect((await call("PUT", "/vm/profiles", { dev: "Standard_B2as_v2" })).status).toBe(200);
+    expect((await call("PUT", "/vm/profiles", { dev: "Standard_B2s" })).status).toBe(200);
+  });
+
+  it("still starts a meeting when Azure refuses the meeting size", async () => {
+    await call("PUT", "/vm/profiles", { dev: "Standard_B8als_v2", meetings: "Standard_B8als_v2" });
+    vm.resize = async () => {
+      throw new Error("QuotaExceeded");
+    };
+    expect((await call("POST", "/vm/start")).status).toBe(409);
+    expect(vm.power).toBe("deallocated");
+    const m = (await call("POST", "/meetings", { ...meeting, autoJoin: false })).body as { id: string };
+    expect((await call("POST", `/meetings/${m.id}/join-now`)).status).toBe(200);
+    expect(vm.power).toBe("running");
+    expect(vm.size).toBe("Standard_B2als_v2");
+  });
+
   it("blocks start when over budget unless overridden", async () => {
     await store.putUsage({ month: "2026-11", hours: 200, usd: 8.5, lastSampleAt: null });
     expect((await call("POST", "/vm/start")).status).toBe(402);

@@ -84,6 +84,7 @@ Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 - **Start or stop** from the app. Meetings with *auto-join* start the VM 8 minutes early by themselves.
 - The VM deallocates after **20 idle minutes**. A meeting, an open terminal or live session, or a busy CPU counts as activity. It also shuts down at 02:00 as a safety net.
 - **Update the agent:** in the app's terminal, run `sudo cloudpilot-update`.
+- **Bigger machine for AI work:** *Settings → Machine → Advanced: machine size* has two sizes. One applies when you start the machine yourself (AI links, terminal, builds). The other applies when a meeting starts it. Both begin at the size `bootstrap.sh` set up, and the machine switches size each time it starts. Sizes above 4 vCPU may need a quota increase on Azure for Students. If Azure refuses a meeting size, the meeting still starts at the current size.
 
 ## Troubleshooting
 | Symptom | Fix |

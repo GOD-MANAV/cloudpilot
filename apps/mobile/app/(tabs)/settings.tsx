@@ -33,11 +33,38 @@ function Stepper({ value, options, onChange, fmt, label }: { value: number; opti
   );
 }
 
+function SizePicker({ label, value, deployed, disabled, onChange }: { label: string; value: string; deployed: string; disabled: boolean; onChange: (s: string) => void }) {
+  const { c } = useSession();
+  const options: [string, string, string][] = [
+    ...(deployed in VM_SIZES ? [] : [[deployed, `As set up (${deployed})`, ""] as [string, string, string]]),
+    ...Object.entries(VM_SIZES).map(([k, v]) => [k, k === deployed ? `${v.label} · as set up` : v.label, `$${v.usdPerHour.toFixed(3)}/h`] as [string, string, string]),
+  ];
+  return (
+    <View style={{ gap: 6 }} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      <T style={{ fontFamily: F.semi }}>{label}</T>
+      {options.map(([k, name, price]) => (
+        <Pressable
+          key={k}
+          disabled={disabled}
+          accessibilityRole="radio"
+          accessibilityState={{ checked: value === k }}
+          onPress={() => value !== k && onChange(k)}
+          style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: value === k ? c.accent : c.border }}
+        >
+          <T style={{ flex: 1 }}>{name}</T>
+          <T v="sub">{price}</T>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 export default function Settings() {
   const { client, c, prefs, setPrefs, signOut } = useSession();
   const vm = usePoll(() => client!.vmStatus(), 20_000);
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
-  const stopped = vm.data?.power === "deallocated" || vm.data?.power === "stopped";
+  const profiles = usePoll(() => client!.vmProfiles(), 0);
+  const [advanced, setAdvanced] = useState(false);
   const remote = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
   const [s, setS] = useState<AgentSettings | null>(null);
@@ -105,20 +132,35 @@ export default function Settings() {
 
               <Card>
                 <T v="label">Machine</T>
-                <T v="sub">Size {stopped ? "" : "(stop the machine to change it)"}</T>
-                {Object.entries(VM_SIZES).map(([k, v]) => (
-                  <Pressable
-                    key={k}
-                    disabled={!stopped || busy}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: vm.data?.size === k, disabled: !stopped }}
-                    onPress={() => run(async () => (await client!.vmResize(k as VmSize), vm.reload()))}
-                    style={{ flexDirection: "row", justifyContent: "space-between", padding: 12, borderRadius: 14, borderWidth: 1, borderColor: vm.data?.size === k ? c.accent : c.border, opacity: stopped ? 1 : 0.6 }}
-                  >
-                    <T>{v.label}</T>
-                    <T v="sub">${v.usdPerHour.toFixed(3)}/h</T>
-                  </Pressable>
-                ))}
+                {vm.data && <T v="sub">Current size: {VM_SIZES[vm.data.size as VmSize]?.label ?? vm.data.size}</T>}
+                <Row
+                  first
+                  title="Advanced: machine size"
+                  sub={advanced ? "Applies each time the machine starts" : "Separate sizes for your work and for meetings"}
+                  onPress={() => setAdvanced(!advanced)}
+                  right={<T v="sub">{advanced ? "Hide" : "Show"}</T>}
+                />
+                {advanced && profiles.data && (
+                  <View style={{ gap: 10 }}>
+                    <SizePicker
+                      label="When you start it (AI links, terminal, builds)"
+                      value={profiles.data.dev}
+                      deployed={profiles.data.deployed}
+                      disabled={busy}
+                      onChange={(dev) => run(async () => (await client!.setVmProfiles({ dev }), profiles.reload()))}
+                    />
+                    <SizePicker
+                      label="For meetings (default: the size it was set up with)"
+                      value={profiles.data.meetings}
+                      deployed={profiles.data.deployed}
+                      disabled={busy}
+                      onChange={(meetings) => run(async () => (await client!.setVmProfiles({ meetings }), profiles.reload()))}
+                    />
+                    <T v="sub">
+                      A running machine keeps its size until it next starts. Bigger sizes use the budget faster, and Azure for Students may refuse sizes above 4 vCPU; meetings then start at the current size.
+                    </T>
+                  </View>
+                )}
                 {s && (
                   <Stepper
                     label="Stop when idle after"

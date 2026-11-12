@@ -15,14 +15,37 @@ export const VmPowerState = z.enum([
 ]);
 export type VmPowerState = z.infer<typeof VmPowerState>;
 
-/** Sizes we offer in the app. Prices are Linux pay-as-you-go USD/hour (East US, late 2026). */
+/**
+ * Sizes we offer in the app. Prices are Linux pay-as-you-go USD/hour (East US, Azure Retail
+ * Prices API, Nov 2026). Sizes above 4 vCPU may need a quota increase on Azure for Students.
+ */
 export const VM_SIZES = {
   Standard_B2als_v2: { vcpu: 2, ramGb: 4, usdPerHour: 0.0376, label: "Everyday (2 vCPU · 4 GB)" },
   Standard_B2as_v2: { vcpu: 2, ramGb: 8, usdPerHour: 0.0752, label: "Roomy (2 vCPU · 8 GB)" },
-  Standard_B4als_v2: { vcpu: 4, ramGb: 8, usdPerHour: 0.1504, label: "Build burst (4 vCPU · 8 GB)" },
+  Standard_B4als_v2: { vcpu: 4, ramGb: 8, usdPerHour: 0.133, label: "Build burst (4 vCPU · 8 GB)" },
+  Standard_B4as_v2: { vcpu: 4, ramGb: 16, usdPerHour: 0.15, label: "Heavy builds (4 vCPU · 16 GB)" },
+  Standard_B8als_v2: { vcpu: 8, ramGb: 16, usdPerHour: 0.266, label: "Big compile (8 vCPU · 16 GB)" },
 } as const;
 export const VmSize = z.enum(Object.keys(VM_SIZES) as [keyof typeof VM_SIZES, ...(keyof typeof VM_SIZES)[]]);
 export type VmSize = z.infer<typeof VmSize>;
+
+/** Why the machine is being started; each purpose has its own size. */
+export const StartPurpose = z.enum(["dev", "meetings"]);
+export type StartPurpose = z.infer<typeof StartPurpose>;
+
+/**
+ * Machine size per purpose. `dev` applies when you start the machine yourself (AI links,
+ * terminal, builds); `meetings` when the scheduler or "Join now" starts it. Both default
+ * to `deployed`, the size the machine was created with, which may be outside VM_SIZES
+ * (e.g. Standard_B2s where v2 sizes are blocked).
+ */
+export const VmProfiles = z.object({
+  dev: z.string(),
+  meetings: z.string(),
+  deployed: z.string(),
+});
+export type VmProfiles = z.infer<typeof VmProfiles>;
+export type VmProfilesPatch = Partial<Pick<VmProfiles, "dev" | "meetings">>;
 
 /** Fixed costs billed even while the VM is off (USD/month). */
 export const FIXED_MONTHLY_USD = { osDisk32gbStandardSsd: 2.4, controlPlane: 0.1 } as const;
