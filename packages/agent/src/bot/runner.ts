@@ -112,9 +112,30 @@ export class BotRunner extends EventEmitter<BotEvents> {
   /** Open a page in the bot's Chrome so you can sign in through the live desktop. */
   async openForSignIn(url = "https://accounts.google.com/") {
     const ctx = await this.browser();
-    const page = ctx.pages()[0] ?? (await ctx.newPage());
+    const page = ctx.pages().find((p) => p !== this.page) ?? (await ctx.newPage());
     await page.goto(url);
     await page.bringToFront();
+  }
+
+  /** Load a URL in a throw-away tab and report where it ended up (used to check sign-in state). */
+  async probe(url: string): Promise<{ url: string; title: string }> {
+    const ctx = await this.browser();
+    const page = await ctx.newPage();
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      // Single-sign-on pages hop through several redirects; give them time to settle.
+      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
+      await sleep(2000);
+      return { url: page.url(), title: await page.title().catch(() => "") };
+    } finally {
+      await page.close().catch(() => undefined);
+    }
+  }
+
+  /** Remove the cookies of a platform (sign out). */
+  async clearCookies(domains: readonly string[]) {
+    const ctx = await this.browser();
+    for (const d of domains) await ctx.clearCookies({ domain: new RegExp(`(^|\\.)${d.replace(/\./g, "\\.")}$`) });
   }
 
   private adapterCtx(): AdapterContext {

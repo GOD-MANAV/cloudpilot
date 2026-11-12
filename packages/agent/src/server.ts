@@ -6,7 +6,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { BotCommand, hasScope, type AuthResult, type TokenScope } from "@cloudpilot/shared";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
+import { AccountPlatform, type Accounts } from "./accounts.js";
 import type { ActivityLog } from "./activity.js";
+import { X11 } from "./bot/x11.js";
 import type { BotRunner } from "./bot/runner.js";
 import type { AgentConfig } from "./config.js";
 import type { ControlLink } from "./control.js";
@@ -25,6 +27,7 @@ export interface ServerDeps {
   delivery: Delivery;
   settings: JsonFile<Settings>;
   activity: ActivityLog;
+  accounts: Accounts;
   onSettings?: (s: Settings) => void;
   joinMeeting: (id: string) => Promise<void>;
 }
@@ -327,6 +330,38 @@ export async function buildServer(d: ServerDeps) {
       sh.kill();
       release();
     });
+  });
+
+  /* ------------------------------------------------------------ meeting accounts (Teams / Zoom / Google) */
+  app.get("/accounts", { preHandler: guard("meetings") }, async () => d.accounts.list());
+  app.post("/accounts/:platform/check", { preHandler: guard("meetings") }, async (req) =>
+    d.accounts.check(AccountPlatform.parse((req.params as { platform: string }).platform)),
+  );
+  app.post("/accounts/:platform/signin", { preHandler: guard("owner") }, async (req) => {
+    await d.accounts.signIn(AccountPlatform.parse((req.params as { platform: string }).platform));
+    return { ok: true };
+  });
+  app.post("/accounts/:platform/signout", { preHandler: guard("owner") }, async (req) => {
+    await d.accounts.signOut(AccountPlatform.parse((req.params as { platform: string }).platform));
+    return { ok: true };
+  });
+
+  /* ------------------------------------------------------------ type into the desktop from the phone */
+  const x11 = new X11(cfg.display);
+  const KEYS = ["Return", "Tab", "BackSpace", "Escape", "ctrl+a", "ctrl+v", "ctrl+l", "F5", "Up", "Down", "Left", "Right"] as const;
+  app.post("/desktop/type", { preHandler: guard("owner") }, async (req) => {
+    // Text is typed once into whatever field has focus and is never stored or logged.
+    const { text, enter } = z.object({ text: z.string().max(2000), enter: z.boolean().default(false) }).parse(req.body);
+    idle.touch();
+    if (text) await x11.type(text);
+    if (enter) await x11.key("Return");
+    return { ok: true };
+  });
+  app.post("/desktop/key", { preHandler: guard("owner") }, async (req) => {
+    const { key } = z.object({ key: z.enum(KEYS) }).parse(req.body);
+    idle.touch();
+    await x11.key(key);
+    return { ok: true };
   });
 
   /* ------------------------------------------------------------ AI activity: watch & control */

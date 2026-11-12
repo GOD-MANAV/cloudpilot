@@ -9,6 +9,7 @@ export function Settings() {
   const stopped = vm.data?.power === "deallocated" || vm.data?.power === "stopped";
   const settings = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
+  const accounts = usePoll(running ? () => client!.accounts() : null, 0, [running]);
   const { busy, run } = useAction();
   const [s, setS] = useState<AgentSettings | null>(null);
   useEffect(() => setS(settings.data), [settings.data]);
@@ -82,11 +83,22 @@ export function Settings() {
               <span className="sub">
                 Sign in to Google, Microsoft or Zoom once in the machine's own Chrome. The bot then joins as you, including org-only meetings. Your passwords never touch CloudPilot.
               </span>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button className="btn btn-primary" disabled={busy} onClick={() => run(async () => (await client!.botSignIn(), window.open(await client!.desktopUrl(), "_blank", "noopener")))}>
-                  Open sign-in browser
-                </button>
-              </div>
+              {(accounts.data ?? []).map((a) => (
+                <div key={a.platform} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", borderTop: "1px solid var(--surface2)", paddingTop: 10 }}>
+                  <div style={{ flex: "1 1 220px" }}>
+                    <div style={{ fontWeight: 600 }}>{a.name}</div>
+                    <span className={`chip ${a.signedIn ? "ok" : a.signedIn === false ? "warn" : ""}`}>
+                      {a.signedIn ? "Signed in" : a.signedIn === false ? "Sign-in needed" : "Not checked"}
+                    </span>
+                  </div>
+                  <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => run(async () => (await client!.signInAccount(a.platform), window.open(await client!.desktopUrl(), "_blank", "noopener")))}>
+                    Sign in on the machine
+                  </button>
+                  <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => run(async () => (await client!.checkAccount(a.platform), accounts.reload()))}>
+                    Check
+                  </button>
+                </div>
+              ))}
               <label className="field">
                 <span>Photo shown when camera mode is Photo</span>
                 <input

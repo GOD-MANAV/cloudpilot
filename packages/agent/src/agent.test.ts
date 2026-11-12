@@ -160,6 +160,7 @@ describe("HTTP server", async () => {
     delivery: {} as never,
     settings: settingsFile(home),
     activity,
+    accounts: { list: async () => [], check: async () => ({}), signIn: async () => undefined, signOut: async () => undefined } as never,
     joinMeeting: async () => undefined,
   });
   const auth = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -272,5 +273,17 @@ describe("AI activity feed", () => {
     expect(log.list()[0]!.status).toBe("blocked");
     log.pause(0);
     expect(log.paused).toBe(false);
+  });
+});
+
+describe("meeting accounts", async () => {
+  const { judgeSignedIn } = await import("./accounts.js");
+  it("tells signed-in from signed-out by where the page lands", () => {
+    expect(judgeSignedIn("teams", "https://teams.microsoft.com/v2/")).toBe(true);
+    expect(judgeSignedIn("teams", "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1")).toBe(false);
+    expect(judgeSignedIn("zoom", "https://zoom.us/signin#/login")).toBe(false);
+    expect(judgeSignedIn("zoom", "https://zoom.us/profile")).toBe(true);
+    expect(judgeSignedIn("google", "https://accounts.google.com/v3/signin/identifier")).toBe(false);
+    expect(judgeSignedIn("google", "https://myaccount.google.com/")).toBe(true);
   });
 });

@@ -79,6 +79,7 @@ function Root() {
         <Stack.Screen name="notes" options={{ title: "Meeting notes" }} />
         <Stack.Screen name="desktop" options={{ title: "Live desktop" }} />
         <Stack.Screen name="terminal" options={{ title: "Terminal" }} />
+        <Stack.Screen name="accounts" options={{ title: "Meeting accounts" }} />
       </Stack>
     </LockGate>
   );

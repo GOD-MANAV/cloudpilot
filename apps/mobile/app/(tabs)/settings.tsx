@@ -1,4 +1,5 @@
 import { ACCENTS, VM_SIZES, type AgentSettings, type VmSize } from "@cloudpilot/shared";
+import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -162,6 +163,25 @@ export default function Settings() {
                     </View>
                   </Card>
 
+                  <Card>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <T v="label">Phone notifications (ntfy)</T>
+                      <Toggle value={s.ntfy.enabled} onChange={(v) => save({ ntfy: { ...s.ntfy, enabled: v } })} label="ntfy notifications" />
+                    </View>
+                    <T v="sub">Free, no account. Install the “ntfy” app from the Play Store, then tap Subscribe — alerts for joins, waiting rooms, finished meetings and AI activity arrive instantly.</T>
+                    {s.ntfy.topic ? <T v="mono">{s.ntfy.topic}</T> : null}
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Btn
+                        style={{ flex: 1 }}
+                        small
+                        label="Subscribe in ntfy"
+                        disabled={!s.ntfy.topic}
+                        onPress={() => void Linking.openURL(`ntfy://${new URL(s.ntfy.server).host}/${s.ntfy.topic}`).catch(() => Linking.openURL("https://play.google.com/store/apps/details?id=io.heckel.ntfy"))}
+                      />
+                      <Btn style={{ flex: 1 }} small kind="secondary" label="Copy topic" disabled={!s.ntfy.topic} onPress={() => void Clipboard.setStringAsync(s.ntfy.topic ?? "")} />
+                    </View>
+                  </Card>
+
                   <Card style={{ gap: 0 }}>
                     <T v="label" style={{ marginBottom: 4 }}>
                       Notifications
@@ -180,8 +200,8 @@ export default function Settings() {
 
                   <Card>
                     <T v="label">Meeting accounts & camera photo</T>
-                    <T v="sub">Sign in to Microsoft Teams (and Zoom/Google) once in the machine's own Chrome so the bot joins as you. Passwords never touch CloudPilot.</T>
-                    <Btn icon="monitor" label="Open sign-in browser" busy={busy} onPress={() => run(async () => (await client!.botSignIn("https://teams.microsoft.com/"), router.push("/desktop")))} />
+                    <T v="sub">Sign in to Microsoft Teams (and Zoom/Google) once on the machine so the bot joins as you. Your password goes only to Microsoft — never stored by CloudPilot.</T>
+                    <Btn icon="key" label="Meeting accounts (Teams, Zoom, Google)" onPress={() => router.push("/accounts")} />
                     <Btn
                       kind="secondary"
                       icon="image"

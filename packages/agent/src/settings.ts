@@ -71,6 +71,13 @@ export const Settings = z.object({
   autoLeave: AutoLeave.default(AutoLeave.parse({})),
   /** Minutes of inactivity before the machine stops itself (overrides the deploy default). */
   idleMinutes: z.number().int().min(0).max(240).optional(),
+  /**
+   * Phone notifications via ntfy (free, no account): install the "ntfy" app and
+   * subscribe to this topic. The topic is random, so treat it like a password.
+   */
+  ntfy: z
+    .object({ enabled: z.boolean().default(true), server: z.string().url().default("https://ntfy.sh"), topic: z.string().optional() })
+    .default({ enabled: true, server: "https://ntfy.sh" }),
   /** Which push notifications to send to your phone. */
   notify: z
     .object({

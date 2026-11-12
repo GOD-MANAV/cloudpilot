@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import type { Meeting } from "@cloudpilot/shared";
+import { randomBytes } from "node:crypto";
+import { Accounts } from "./accounts.js";
 import { ActivityLog } from "./activity.js";
 import { BotRunner } from "./bot/runner.js";
 import { loadConfig } from "./config.js";
@@ -18,6 +20,13 @@ const bot = new BotRunner(cfg, idle, () => settings.read());
 const google = new Google(cfg.dataDir, cfg.fqdn, async () => (await settings.read()).google);
 const delivery = new Delivery(google, () => settings.read());
 const activity = new ActivityLog();
+const accounts = new Accounts(cfg.dataDir, bot);
+
+// Give every machine its own private ntfy topic on first boot.
+{
+  const s = await settings.read();
+  if (!s.ntfy.topic) await settings.write({ ...s, ntfy: { ...s.ntfy, topic: `cloudpilot-${randomBytes(12).toString("hex")}` } });
+}
 
 function applySettings(s: Awaited<ReturnType<typeof settings.read>>) {
   idle.idleMinutes = s.idleMinutes ?? cfg.idleMinutes;
@@ -48,7 +57,14 @@ async function joinMeeting(id: string) {
 }
 
 async function push(title: string, body: string) {
-  const { pushTokens } = await settings.read();
+  const { pushTokens, ntfy } = await settings.read();
+  if (ntfy.enabled && ntfy.topic) {
+    await fetch(`${ntfy.server.replace(/\/$/, "")}/${ntfy.topic}`, {
+      method: "POST",
+      headers: { Title: encodeURIComponent(title).length === title.length ? title : "CloudPilot", Tags: "cloud", Priority: "default" },
+      body: encodeURIComponent(title).length === title.length ? body : `${title}: ${body}`,
+    }).catch((e) => console.warn("ntfy failed", e));
+  }
   if (!pushTokens.length) return;
   await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
@@ -103,7 +119,7 @@ async function syncLoop() {
   }
 }
 
-const app = await buildServer({ cfg, control, bot, idle, google, delivery, settings, activity, onSettings: applySettings, joinMeeting });
+const app = await buildServer({ cfg, control, bot, idle, google, delivery, settings, activity, accounts, onSettings: applySettings, joinMeeting });
 await app.listen({ host: "127.0.0.1", port: cfg.port });
 console.log(`CloudPilot agent on 127.0.0.1:${cfg.port} for https://${cfg.fqdn}`);
 
@@ -118,3 +134,20 @@ for (const sig of ["SIGTERM", "SIGINT"] as const)
     await app.close();
     process.exit(0);
   });
+
+// A minute after boot, make sure the accounts needed by upcoming meetings are still signed in,
+// so you hear about an expired Teams login before the class — not when the bot fails to join.
+setTimeout(async () => {
+  const needed = new Set(
+    control.meetings
+      .filter((m) => m.joinAs === "profile" && Date.parse(m.endAt) > Date.now())
+      .map((m) => (m.platform === "meet" ? "google" : m.platform))
+      .filter((p): p is "teams" | "zoom" | "google" => p === "teams" || p === "zoom" || p === "google"),
+  );
+  for (const p of needed) {
+    if (bot.busy) return;
+    const s = await accounts.check(p).catch(() => null);
+    if (s && s.signedIn === false)
+      void push("Sign-in needed", `The machine is signed out of ${p === "teams" ? "Microsoft Teams" : p}. Open the app → Settings → Meeting accounts.`);
+  }
+}, 60_000).unref();

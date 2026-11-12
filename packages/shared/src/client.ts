@@ -69,9 +69,21 @@ export const AgentSettings = z
       warmupMinutes: z.number(),
     }),
     idleMinutes: z.number().optional(),
+    ntfy: z.object({ enabled: z.boolean(), server: z.string(), topic: z.string().optional() }),
     notify: z.object({ joined: z.boolean(), waitingRoom: z.boolean(), finished: z.boolean(), aiActivity: z.boolean() }),
   })
   .passthrough();
+
+export const AccountInfo = z.object({
+  platform: z.enum(["teams", "zoom", "google"]),
+  name: z.string(),
+  signedIn: z.boolean().nullable(),
+  detail: z.string().nullable(),
+  checkedAt: z.string().nullable(),
+  tips: z.array(z.string()),
+});
+export type AccountInfo = z.infer<typeof AccountInfo>;
+export type AccountPlatformId = AccountInfo["platform"];
 
 export const ActivityEntry = z.object({
   id: z.string(),
@@ -298,6 +310,28 @@ export class CloudPilotClient {
   registerPush(token: string) {
     return this.agent(null, "/push/register", { method: "POST", body: JSON.stringify({ token }) });
   }
+  /* ---------------- meeting accounts (signed in once in the machine's Chrome) ---------------- */
+  accounts() {
+    return this.agent(AccountInfo.array(), "/accounts");
+  }
+  checkAccount(p: AccountPlatformId) {
+    return this.agent(AccountInfo.omit({ name: true, tips: true }), `/accounts/${p}/check`, { method: "POST" });
+  }
+  /** Opens the platform's sign-in page in the machine's Chrome; then show the desktop. */
+  signInAccount(p: AccountPlatformId) {
+    return this.agent(null, `/accounts/${p}/signin`, { method: "POST" });
+  }
+  signOutAccount(p: AccountPlatformId) {
+    return this.agent(null, `/accounts/${p}/signout`, { method: "POST" });
+  }
+  /** Type text into whatever has focus on the machine's desktop (e.g. a sign-in form). Not stored. */
+  desktopType(text: string, enter = false) {
+    return this.agent(null, "/desktop/type", { method: "POST", body: JSON.stringify({ text, enter }) });
+  }
+  desktopKey(key: "Return" | "Tab" | "BackSpace" | "Escape" | "ctrl+a" | "ctrl+v" | "ctrl+l" | "F5" | "Up" | "Down" | "Left" | "Right") {
+    return this.agent(null, "/desktop/key", { method: "POST", body: JSON.stringify({ key }) });
+  }
+
   activity() {
     return this.agent(z.object({ entries: ActivityEntry.array(), pausedUntil: z.string().nullable() }), "/activity");
   }

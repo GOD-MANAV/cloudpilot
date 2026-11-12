@@ -55,8 +55,8 @@
    CP_BUDGET_EMAIL=you@example.com bash infra/bootstrap.sh
    ```
 3. Add the printed **authenticator QR** to Google Authenticator (or Aegis or 1Password).
-4. Install the Android app (Actions → *Android APK (EAS)*), tap **Pair this phone**, scan the pairing QR and enter the 6-digit code.
-5. Settings → **Open sign-in browser** and sign in to Teams once in the VM's Chrome.
+4. On your phone open **Releases → CloudPilot Android (latest) → CloudPilot.apk** and install it. Then scan the pairing QR and enter the 6-digit code.
+5. **Settings → Meeting accounts → Teams → Sign in** and log in once on the machine. Your password goes only to Microsoft.
 
 Full guide: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 

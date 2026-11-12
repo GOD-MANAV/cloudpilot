@@ -29,19 +29,28 @@ The script prints two QR codes:
 
 The owner key is shown once, so keep it in a password manager. Signing in needs both the key and a fresh code, and 5 wrong attempts lock sign-in for 15 minutes.
 
-## 1b. Install the Android app
-1. Create a free account at <https://expo.dev> and an access token. Add it to your GitHub repo as the secret `EXPO_TOKEN`.
-2. Run `npx eas init` in `apps/mobile` once. This links the project and enables push notifications.
-3. Go to **Actions → Android APK (EAS) → Run workflow**. When the build finishes, open the build page on your phone and install the APK.
+## 1b. Install the Android app (no Expo account needed)
+GitHub builds the APK for you on every change to the app.
+1. On your phone or tablet, open **github.com/<you>/cloudpilot → Releases → "CloudPilot Android (latest)"**.
+2. Tap **CloudPilot.apk**. When Android asks, allow your browser to *install unknown apps*.
+3. Open CloudPilot, tap **Scan pairing QR**, then enter the 6-digit authenticator code.
+
+You can also start a build by hand under **Actions → Android APK → Run workflow**. The APK is unsigned for the Play Store but fine to sideload, and newer builds install over older ones.
+
+**Notifications:** install the free **ntfy** app, then in CloudPilot go to **Settings → Phone notifications → Subscribe in ntfy**. No account or Google services are needed.
 
 The website is optional and **offline by default**. Publish it with **Actions → Website (GitHub Pages) → Run workflow (publish)**, and take it down again with *unpublish*.
 
-First boot takes about 10 minutes while cloud-init installs Chrome, KasmVNC, Caddy and the agent. Check progress with `ssh pilot@<fqdn> 'cloud-init status --long'`.
+## 2. Sign in to Teams (once)
+The bot joins meetings with **your** Microsoft account, signed in once in the VM's own Chrome.
+1. In the app go to **Settings → Meeting accounts → Microsoft Teams → Sign in**. The live desktop opens on Microsoft's sign-in page.
+2. Enter your institute email and password. If tapping the page doesn't bring up your keyboard, type in the **keyboard bar** under the desktop and press **Send**, then **Enter**. Use *Hide text* for the password.
+3. Approve the request in Microsoft Authenticator if asked, and choose **Stay signed in**.
+4. Back in the app, tap **Check**. It should say *Signed in*.
 
-## 2. Sign in to meeting platforms (once)
-In the app: **Settings → Open sign-in browser**. Sign in to Google, and to Microsoft or Zoom if you use them, **in the VM's Chrome**. The profile is saved on the VM disk, so the bot then joins *as you*, which matters for org-restricted university meetings.
+Your password goes straight to Microsoft. CloudPilot doesn't store it; only Chrome's normal login cookies stay on the VM disk. Each time the machine boots, it checks that the accounts your upcoming meetings need are still signed in, and notifies you if not.
 
-CloudPilot never sees or stores your passwords. You type them into Chrome yourself.
+Zoom and Google work the same way and are optional. Meetings can also be set to **Join as a guest** (name only), which most Teams and Zoom meetings allow; the organiser may need to admit you.
 
 ## 3. Google Drive + email (optional)
 1. Go to <https://console.cloud.google.com> → create a project.
