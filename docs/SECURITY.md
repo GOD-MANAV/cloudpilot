@@ -11,12 +11,13 @@ secrets in Azure Cloud Shell.
 |---|---|---|
 | **Owner key** (shown once by `bootstrap.sh`) | Your password manager | Nothing on its own. Together with a fresh 6-digit authenticator code it signs in a device at `/auth/login`. |
 | **Authenticator secret** | Your authenticator app; the Function's settings | Produces the 6-digit codes. Each code is accepted once. |
-| **Device session** (phone 30 days, browser 12 hours) | Phone: Android Keystore via SecureStore. Browser: that site's local storage. | Full control. Revoke it under *AI Access → Devices*. |
+| **Device session** (phone 30 days, browser 12 hours) | Phone: Android Keystore via SecureStore. Browser: that tab only (session storage), gone when you close the tab. | Full control. Revoke it under *AI Access → Devices*. |
 | **Links for AI** (scoped, expiring) | Wherever you paste them | Only their scopes. `mcp`, `terminal` and `files` act as the unprivileged `dev` user. |
 | **Signing key** | Function settings and `/etc/cloudpilot/agent.env` (root and admin only) | Signs every token. Never leaves Azure. |
 
-Five wrong sign-ins lock *new* sign-ins for 15 minutes. Devices that are already
-signed in keep working.
+Five wrong sign-ins from one network address lock sign-ins *from that address* for 15
+minutes. Someone else failing can't lock you out, and devices that are already signed in
+keep working.
 
 ## Isolation on the machine
 
@@ -62,13 +63,24 @@ The public IP exists only while the machine runs.
 - Meeting passwords are never handled. You type them into Microsoft, Zoom or Google pages on the VM's desktop. Text typed through the phone's keyboard bar is passed to the desktop and not stored.
 - Secrets in settings are redacted in every API response.
 
-## Known limits
+## Privacy choices
 
-- **Anyone with a device session or an `owner` link controls the machine.** Revoke lost devices promptly.
-- **ntfy.sh is a public service.** Your topic name is random (96 bits), but notifications include meeting titles. Self-host ntfy and set its URL in Settings if that matters to you.
-- **Repeated failed sign-ins lock out new logins for 15 minutes.** Someone who knows your Control URL could keep you from signing in a *new* device. Existing devices still work.
-- **A revoked link can work for up to 30 seconds after the VM boots,** until the first revocation-list sync.
-- **Recording meetings may require consent** from other participants where you live. See [ETHICS.md](ETHICS.md).
+- **Notifications include meeting titles** by default. They travel through ntfy.sh and
+  Expo, and your ntfy topic is random (96 bits). If you'd rather they only say what
+  happened, turn on *Settings → Hide meeting titles in notifications*. You can also
+  self-host ntfy and set its URL in Settings.
+- **Recording notice.** When the bot starts recording, it posts a short notice in the
+  meeting chat by default. You can change the text or turn it off in Settings. Recording
+  may need participants' consent where you live; see [ETHICS.md](ETHICS.md).
+- **Revocation survives reboots.** The VM stores the list of revoked links on disk, so a
+  revoked link stays dead even before the first sync after boot.
+
+## What you still have to protect
+
+- **Anyone with one of your signed-in devices or an `owner` link controls the
+  machine.** Keep the biometric lock on, and revoke a lost device under
+  *AI Access → Devices*.
+- **The owner key and the authenticator.** Together they can sign in a new device.
 
 ## Reporting a vulnerability
 

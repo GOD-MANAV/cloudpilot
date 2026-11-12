@@ -1,3 +1,5 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { authenticate, signToken, type AuthResult, type Meeting } from "@cloudpilot/shared";
 import type { AgentConfig } from "./config.js";
 
@@ -15,6 +17,20 @@ export class ControlLink {
   lastSyncAt: Date | null = null;
 
   constructor(private readonly cfg: AgentConfig) {}
+
+  private get revokedFile() {
+    return join(this.cfg.dataDir, "revoked.json");
+  }
+
+  /** Load the last known revocation list, so a reboot doesn't briefly re-enable revoked links. */
+  async loadRevoked() {
+    try {
+      const ids = JSON.parse(await readFile(this.revokedFile, "utf8")) as unknown;
+      if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") this.revoked.add(id);
+    } catch {
+      /* first boot */
+    }
+  }
 
   private async selfToken(): Promise<string> {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -45,7 +61,10 @@ export class ControlLink {
     this.labels = new Map(Object.entries(r.tokenLabels ?? {}));
     this.meetings = r.meetings;
     this.due = r.due;
-    this.revoked = new Set(r.revoked);
+    // Union with what we knew: revocation is permanent, so never drop an id.
+    const before = this.revoked.size;
+    this.revoked = new Set([...this.revoked, ...r.revoked]);
+    if (this.revoked.size !== before) await writeFile(this.revokedFile, JSON.stringify([...this.revoked]), { mode: 0o600 }).catch(() => undefined);
     this.lastSyncAt = new Date();
     return r;
   }

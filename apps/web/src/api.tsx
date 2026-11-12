@@ -12,7 +12,9 @@ const PREFS = "cloudpilot.prefs";
 
 function loadSession(): Session | null {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? "null") as Session | null;
+    localStorage.removeItem(KEY); // older versions kept it here
+    // Per-tab storage: the session ends when the tab closes and is never shared across tabs.
+    const s = JSON.parse(sessionStorage.getItem(KEY) ?? "null") as Session | null;
     if (s && Date.parse(s.expiresAt) > Date.now()) return s;
   } catch {
     /* ignore */
@@ -76,7 +78,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     session,
     signIn: (s) => {
       try {
-        localStorage.setItem(KEY, JSON.stringify(s));
+        sessionStorage.setItem(KEY, JSON.stringify(s));
       } catch {
         /* ignore */
       }
@@ -84,7 +86,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     },
     signOut: () => {
       try {
-        localStorage.removeItem(KEY);
+        sessionStorage.removeItem(KEY);
       } catch {
         /* ignore */
       }

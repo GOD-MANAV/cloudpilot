@@ -228,5 +228,15 @@ describe("device login (owner key + authenticator code)", () => {
     expect((await login.handle({ method: "GET", path: "/vm/status", headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
     for (let i = 0; i < 5; i++) await go(OWNER, "111111");
     expect((await go(OWNER, code)).status).toBe(429);
+    // the lockout is per address: someone else hammering the login can't lock the owner out
+    clock = new Date(clock.getTime() + 60_000);
+    const fresh = await totpAt(SECRET, clock.getTime());
+    const fromHome = await login.handle({
+      method: "POST",
+      path: "/auth/login",
+      headers: { "x-client-ip": "203.0.113.7" },
+      body: { ownerToken: OWNER, code: fresh, deviceName: "Tab", kind: "phone" },
+    });
+    expect(fromHome.status).toBe(201);
   });
 });

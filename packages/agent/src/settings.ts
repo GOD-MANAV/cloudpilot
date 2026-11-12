@@ -78,6 +78,14 @@ export const Settings = z.object({
   ntfy: z
     .object({ enabled: z.boolean().default(true), server: z.string().url().default("https://ntfy.sh"), topic: z.string().optional() })
     .default({ enabled: true, server: "https://ntfy.sh" }),
+  /**
+   * Keep meeting titles, names and commands out of notifications. They pass through
+   * ntfy.sh and Expo's servers; turn this on to have them only say what happened.
+   */
+  privateNotifications: z.boolean().default(false),
+  /** Post a short notice in the meeting chat when recording starts, so participants know. */
+  announceRecording: z.boolean().default(true),
+  recordingNotice: z.string().min(1).max(300).default("Heads-up: I'm recording this meeting for my own notes."),
   /** Which push notifications to send to your phone. */
   notify: z
     .object({

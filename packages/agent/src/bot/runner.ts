@@ -232,6 +232,8 @@ export class BotRunner extends EventEmitter<BotEvents> {
           this.recordingPath = join(dir, "recording.mp4");
           this.recorder.start(this.recordingPath, settings.recordingFps);
           this.set({ recording: true });
+          if (settings.announceRecording)
+            await this.adapter!.chat(this.adapterCtx(), settings.recordingNotice).catch((e) => console.warn("recording notice not posted:", (e as Error).message));
         }
         this.shotsEngine = new ShotEngine(dir, meeting.id, () => page.screenshot({ type: "jpeg", quality: 82 }), (s) => {
           this.set({ screenshots: this.state.screenshots + 1 });

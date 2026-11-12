@@ -196,6 +196,23 @@ export default function Settings() {
                     ).map(([k, label], i) => (
                       <Row key={k} first={i === 0} title={label} right={<Toggle value={s.notify[k]} onChange={(v) => save({ notify: { ...s.notify, [k]: v } })} label={label} />} />
                     ))}
+                    <Row
+                      title="Hide meeting titles in notifications"
+                      right={<Toggle value={s.privateNotifications} onChange={(v) => save({ privateNotifications: v })} label="Hide meeting titles in notifications" />}
+                    />
+                    <T v="sub">Notifications pass through ntfy.sh and Expo. When this is on, they only say what happened, not which meeting or command.</T>
+                  </Card>
+
+                  <Card style={{ gap: 0 }}>
+                    <T v="label" style={{ marginBottom: 4 }}>
+                      Recording
+                    </T>
+                    <Row
+                      first
+                      title="Tell participants in the meeting chat"
+                      right={<Toggle value={s.announceRecording} onChange={(v) => save({ announceRecording: v })} label="Announce recording in chat" />}
+                    />
+                    <T v="sub">When recording starts, CloudPilot posts: “{s.recordingNotice}”</T>
                   </Card>
 
                   <Card>

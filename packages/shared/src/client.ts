@@ -71,6 +71,9 @@ export const AgentSettings = z
     idleMinutes: z.number().optional(),
     ntfy: z.object({ enabled: z.boolean(), server: z.string(), topic: z.string().optional() }),
     notify: z.object({ joined: z.boolean(), waitingRoom: z.boolean(), finished: z.boolean(), aiActivity: z.boolean() }),
+    privateNotifications: z.boolean().default(false),
+    announceRecording: z.boolean().default(true),
+    recordingNotice: z.string().default("Heads-up: I'm recording this meeting for my own notes."),
   })
   .passthrough();
 

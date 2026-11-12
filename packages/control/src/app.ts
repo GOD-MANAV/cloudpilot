@@ -140,7 +140,7 @@ export function createApp(deps: AppDeps) {
     const seg = path.split("/").filter(Boolean);
 
     if (method === "GET" && path === "/health") return { status: 200, body: { ok: true, totp: !!deps.totpSecret } };
-    if (method === "POST" && path === "/auth/login") return login(req.body);
+    if (method === "POST" && path === "/auth/login") return login(req.body, clientKey(req));
 
     const a = await auth(req);
 
@@ -276,7 +276,19 @@ export function createApp(deps: AppDeps) {
   }
 
   /** Owner key + authenticator code → revocable device session token. */
-  async function login(body: unknown): Promise<Res> {
+  /**
+   * Lockouts are per client address, so someone hammering the login can't lock *you*
+   * out. Brute force stays infeasible: the owner key is 256 bits and needs a fresh code.
+   */
+  function clientKey(req: Req): string {
+    const h = (k: string) => req.headers[k] ?? req.headers[k.toLowerCase()];
+    // App Service sets X-Client-IP; X-Forwarded-For's last hop is the one Azure added.
+    let ip = (h("x-client-ip") ?? h("x-forwarded-for")?.split(",").pop() ?? "unknown").trim();
+    ip = ip.replace(/^\[([^\]]+)\](:\d+)?$/, "$1").replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, "$1");
+    return ip;
+  }
+
+  async function login(body: unknown, client = "unknown"): Promise<Res> {
     const input = z
       .object({
         ownerToken: z.string().min(8).max(200),
@@ -285,23 +297,26 @@ export function createApp(deps: AppDeps) {
         kind: z.enum(["phone", "web"]),
       })
       .parse(body);
-    const lockUntil = Number((await store.getFlag("login-lock")) ?? 0);
+    const who = await shortHash(client);
+    const lockKey = `login-lock-${who}`;
+    const failKey = `login-fails-${who}`;
+    const lockUntil = Number((await store.getFlag(lockKey)) ?? 0);
     if (now().getTime() < lockUntil) throw new HttpError(429, "Too many attempts. Try again in a few minutes.");
     const keyOk = safeEqual(await sha256Hex(input.ownerToken), deps.ownerTokenSha256.toLowerCase());
     const step = deps.totpSecret ? await totpStep(deps.totpSecret, input.code, now().getTime()) : 0;
     const lastStep = Number((await store.getFlag("totp-last-step")) ?? -1);
     const codeOk = step !== null && (!deps.totpSecret || step > lastStep); // each code works once
     if (!keyOk || !codeOk) {
-      const fails = Number((await store.getFlag("login-fails")) ?? 0) + 1;
-      await store.setFlag("login-fails", String(fails));
+      const fails = Number((await store.getFlag(failKey)) ?? 0) + 1;
+      await store.setFlag(failKey, String(fails));
       if (fails >= 5) {
-        await store.setFlag("login-lock", String(now().getTime() + 15 * 60_000));
-        await store.setFlag("login-fails", "0");
+        await store.setFlag(lockKey, String(now().getTime() + 15 * 60_000));
+        await store.setFlag(failKey, null);
       }
       // Same message either way, so a guess never learns which half was right.
       throw new HttpError(401, "Wrong owner key or authenticator code (each code works once).");
     }
-    await store.setFlag("login-fails", "0");
+    await store.setFlag(failKey, null);
     if (deps.totpSecret) await store.setFlag("totp-last-step", String(step));
     const created = now();
     const ttlHours = input.kind === "phone" ? 24 * 30 : 12;

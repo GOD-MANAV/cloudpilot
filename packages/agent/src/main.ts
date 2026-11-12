@@ -15,6 +15,7 @@ import { settingsFile } from "./settings.js";
 const cfg = loadConfig();
 const settings = settingsFile(cfg.dataDir);
 const control = new ControlLink(cfg);
+await control.loadRevoked(); // revoked links stay revoked across reboots, before the first sync
 const idle = new IdleWatch(cfg.idleMinutes);
 const bot = new BotRunner(cfg, idle, () => settings.read());
 const google = new Google(cfg.dataDir, cfg.fqdn, async () => (await settings.read()).google);
@@ -56,8 +57,10 @@ async function joinMeeting(id: string) {
   await bot.join(m);
 }
 
-async function push(title: string, body: string) {
-  const { pushTokens, ntfy } = await settings.read();
+async function push(title: string, detail: string) {
+  const { pushTokens, ntfy, privateNotifications } = await settings.read();
+  // Notifications travel through ntfy.sh / Expo; "Hide meeting titles" keeps titles and commands out of them.
+  const body = privateNotifications ? "Open CloudPilot for details." : detail;
   if (ntfy.enabled && ntfy.topic) {
     await fetch(`${ntfy.server.replace(/\/$/, "")}/${ntfy.topic}`, {
       method: "POST",

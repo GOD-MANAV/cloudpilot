@@ -261,6 +261,22 @@ export function Settings() {
             </section>
 
             <section className="card">
+              <h2>Privacy</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <span>Hide meeting titles in notifications (they pass through ntfy.sh and Expo)</span>
+                <button className="switch" role="switch" aria-checked={s.privateNotifications} aria-label="Hide meeting titles in notifications" onClick={() => save({ privateNotifications: !s.privateNotifications })} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <span>Tell participants in the meeting chat when recording starts</span>
+                <button className="switch" role="switch" aria-checked={s.announceRecording} aria-label="Announce recording in chat" onClick={() => save({ announceRecording: !s.announceRecording })} />
+              </div>
+              <label className="field">
+                <span>Recording notice</span>
+                <input maxLength={300} defaultValue={s.recordingNotice} onBlur={(e) => e.target.value && e.target.value !== s.recordingNotice && save({ recordingNotice: e.target.value })} />
+              </label>
+            </section>
+
+            <section className="card">
               <h2>Defaults</h2>
               <div className="grid">
                 <label className="field">
