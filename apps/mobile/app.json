@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "CloudPilot",
+    "slug": "cloudpilot",
+    "scheme": "cloudpilot",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0B1020",
+    "android": {
+      "package": "app.cloudpilot.mobile",
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#6553F5" },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-video",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        { "image": "./assets/splash-icon.png", "imageWidth": 160, "backgroundColor": "#0B1020" }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CloudPilot uses the camera to scan your pairing QR code and, when you go live, to show you in the meeting.",
+          "microphonePermission": "CloudPilot uses the microphone only when you go live in a meeting.",
+          "recordAudioAndroid": true
+        }
+      ],
+      ["expo-local-authentication", { "faceIDPermission": "Unlock CloudPilot with your face." }],
+      ["expo-notifications", { "icon": "./assets/notification-icon.png", "color": "#6553F5" }],
+      ["expo-image-picker", { "photosPermission": "Pick the photo shown when your camera is off." }],
+      "@config-plugins/react-native-webrtc"
+    ],
+    "experiments": { "typedRoutes": false }
+  }
+}

@@ -1,0 +1,206 @@
+#cloud-config
+# CloudPilot VM bootstrap (Ubuntu 24.04). Placeholders (__X__) are filled in by main.bicep.
+package_update: true
+package_upgrade: false
+packages:
+  - git
+  - curl
+  - jq
+  - unzip
+  - build-essential
+  - python3
+  - python3-venv
+  - ffmpeg
+  - pulseaudio
+  - pulseaudio-utils
+  - xdotool
+  - openbox
+  - xterm
+  - fonts-noto
+  - fonts-noto-color-emoji
+  - fonts-noto-cjk
+  - ca-certificates
+  - gnupg
+  - docker.io
+  - docker-compose-v2
+
+swap:
+  filename: /swapfile
+  size: 2G
+  maxsize: 2G
+
+write_files:
+  - path: /etc/cloudpilot/agent.env.tpl
+    permissions: "0640"
+    content: |
+      CP_FQDN=__FQDN__
+      CP_OWNER_TOKEN_SHA256=__OWNER_TOKEN_SHA256__
+      CP_SIGNING_KEY=__SIGNING_KEY__
+      CP_CONTROL_URL=__CONTROL_URL__
+      CP_IDLE_MINUTES=__IDLE_MINUTES__
+      CP_DATA_DIR=/data
+      CP_PORT=8787
+      CP_DISPLAY=:1
+      CP_KASM_URL=http://127.0.0.1:6901
+      CP_CHROME_PATH=/usr/bin/google-chrome-stable
+      CP_CHROME_PROFILE=/data/chrome-profile
+
+  - path: /etc/caddy/Caddyfile
+    content: |
+      {
+        # Certificates persist in /var/lib/caddy, so re-starts don't hit Let's Encrypt limits.
+      }
+
+      __FQDN__ {
+        encode zstd gzip
+        header {
+          Strict-Transport-Security "max-age=31536000"
+          X-Content-Type-Options nosniff
+          Referrer-Policy no-referrer
+          -Server
+        }
+        reverse_proxy 127.0.0.1:8787
+      }
+
+      # Live desktop (KasmVNC). Same host, port 8443; cookie set by the agent's /desktop/login.
+      __FQDN__:8443 {
+        forward_auth 127.0.0.1:8787 {
+          uri /auth/desktop
+        }
+        reverse_proxy 127.0.0.1:6901 {
+          header_up Authorization "Basic {env.CP_KASM_BASIC}"
+        }
+      }
+
+  - path: /etc/systemd/system/caddy.service.d/override.conf
+    content: |
+      [Service]
+      EnvironmentFile=/etc/cloudpilot/kasm.env
+
+  - path: /etc/kasmvnc/kasmvnc.yaml
+    content: |
+      network:
+        protocol: http
+        interface: 127.0.0.1
+        websocket_port: 6901
+        ssl:
+          require_ssl: false
+        udp:
+          public_ip: 127.0.0.1
+      desktop:
+        resolution:
+          width: 1280
+          height: 800
+        allow_resize: false
+      encoding:
+        max_frame_rate: 24
+      logging:
+        log_writer_name: all
+        log_dest: logfile
+        level: 30
+
+  - path: /etc/systemd/system/cloudpilot-desktop.service
+    content: |
+      [Unit]
+      Description=CloudPilot virtual desktop (KasmVNC on :1)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User=__ADMIN__
+      Environment=HOME=/home/__ADMIN__
+      ExecStartPre=-/usr/bin/vncserver -kill :1
+      ExecStart=/usr/bin/vncserver :1 -geometry 1280x800 -depth 24
+      ExecStop=/usr/bin/vncserver -kill :1
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/cloudpilot-agent.service
+    content: |
+      [Unit]
+      Description=CloudPilot agent
+      After=network-online.target cloudpilot-desktop.service
+      Wants=network-online.target cloudpilot-desktop.service
+
+      [Service]
+      User=__ADMIN__
+      WorkingDirectory=/opt/cloudpilot/packages/agent
+      EnvironmentFile=/etc/cloudpilot/agent.env
+      Environment=HOME=/home/__ADMIN__
+      Environment=XDG_RUNTIME_DIR=/run/user/1000
+      Environment=NODE_ENV=production
+      ExecStart=/usr/bin/node dist/main.js
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/cloudpilot-update
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Pull the latest agent and restart it. Safe to run any time.
+      set -euo pipefail
+      cd /opt/cloudpilot
+      sudo -u __ADMIN__ git fetch --depth 1 origin "${1:-__AGENT_REF__}"
+      sudo -u __ADMIN__ git reset --hard FETCH_HEAD
+      sudo -u __ADMIN__ npm ci --workspace packages/shared --workspace packages/agent --include-workspace-root
+      sudo -u __ADMIN__ npm run build --workspace packages/shared --workspace packages/agent
+      systemctl restart cloudpilot-agent
+
+runcmd:
+  # --- Node.js 22 ---
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+  # --- Google Chrome (real Chrome: Meet/Zoom/Teams web clients behave best with it) ---
+  - curl -fsSLo /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  - apt-get install -y /tmp/chrome.deb
+  # --- Caddy (automatic HTTPS) ---
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update && apt-get install -y caddy
+  # --- KasmVNC (web-native live desktop) ---
+  - curl -fsSLo /tmp/kasmvnc.deb https://github.com/kasmtech/KasmVNC/releases/download/v1.5.2/kasmvncserver_ubuntu_noble_1.5.2_amd64.deb
+  - apt-get install -y /tmp/kasmvnc.deb
+  - usermod -aG ssl-cert,docker __ADMIN__
+  # --- secrets generated on the box ---
+  - mkdir -p /etc/cloudpilot /data && chown __ADMIN__:__ADMIN__ /data
+  - |
+    set -e
+    KASM_PW=$(openssl rand -hex 16)
+    echo "CP_KASM_BASIC=$(printf '%s:%s' '__ADMIN__' "$KASM_PW" | base64 -w0)" > /etc/cloudpilot/kasm.env
+    chgrp caddy /etc/cloudpilot/kasm.env && chmod 640 /etc/cloudpilot/kasm.env
+    printf '%s\n%s\n' "$KASM_PW" "$KASM_PW" | sudo -u __ADMIN__ -H vncpasswd -u __ADMIN__ -wo
+  - cp /etc/cloudpilot/agent.env.tpl /etc/cloudpilot/agent.env
+  - chown root:__ADMIN__ /etc/cloudpilot/agent.env && chmod 640 /etc/cloudpilot/agent.env
+  # --- desktop session: openbox + pulseaudio, no DE prompt ---
+  - sudo -u __ADMIN__ mkdir -p /home/__ADMIN__/.vnc
+  - sudo -u __ADMIN__ touch /home/__ADMIN__/.vnc/.de-was-selected
+  - |
+    cat > /home/__ADMIN__/.vnc/xstartup <<'XS'
+    #!/bin/sh
+    unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
+    pulseaudio --start --exit-idle-time=-1 || true
+    xsetroot -solid '#0b1020' 2>/dev/null || true
+    exec openbox-session
+    XS
+  - chown __ADMIN__:__ADMIN__ /home/__ADMIN__/.vnc/xstartup && chmod 755 /home/__ADMIN__/.vnc/xstartup
+  - loginctl enable-linger __ADMIN__
+  # --- agent ---
+  - git clone --depth 1 --branch __AGENT_REF__ __AGENT_REPO__ /opt/cloudpilot
+  - chown -R __ADMIN__:__ADMIN__ /opt/cloudpilot
+  - cd /opt/cloudpilot && sudo -u __ADMIN__ npm ci --workspace packages/shared --workspace packages/agent --include-workspace-root
+  - cd /opt/cloudpilot && sudo -u __ADMIN__ npm run build --workspace packages/shared --workspace packages/agent
+  # --- AI tooling for dev sessions ---
+  - npm install -g @anthropic-ai/claude-code
+  # --- start everything ---
+  - systemctl daemon-reload
+  - systemctl enable --now cloudpilot-desktop cloudpilot-agent
+  - systemctl restart caddy
+
+final_message: "CloudPilot ready after $UPTIME seconds"
