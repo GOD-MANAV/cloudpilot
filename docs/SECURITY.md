@@ -48,7 +48,7 @@ sudo usermod -aG docker dev
 | 443, 80 | Internet | The agent, behind Caddy with automatic Let's Encrypt HTTPS |
 | 8443 | Internet | Live desktop. Every request passes Caddy `forward_auth`. The session cookie is random, lasts 8 hours, and comes from a single-use 60-second ticket. |
 | UDP 32768–60999 | Internet | WebRTC for going live from your phone (DTLS-encrypted) |
-| 22 | **Closed** by default | To open it for one address, run `CP_SSH_FROM=<ip>/32 bash infra/bootstrap.sh`. Key-only, no passwords. |
+| 22 | **Closed** by default | To open it for one address, run `CP_SSH_FROM=<ip>/32 bash infra/bootstrap.sh` (safe to re-run; your keys are kept), and `CP_SSH_FROM=off` to close it. Key-only, no passwords. |
 
 The public IP exists only while the machine runs.
 

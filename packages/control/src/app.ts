@@ -41,6 +41,9 @@ export interface AppDeps {
   probeAgent?: (fqdn: string) => Promise<boolean>;
 }
 
+/** HTTP methods the Function host routes to the app. Keep in sync with what the client sends (tested). */
+export const API_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+
 export interface Req {
   method: string;
   path: string; // without /api prefix, e.g. "/vm/status"
@@ -165,6 +168,26 @@ export function createApp(deps: AppDeps) {
     return { ...(await vm.status()), agentHealthy: false };
   }
 
+  /**
+   * Finishes a "restart at this size": once the machine has stopped, start it again for
+   * the saved purpose (which resizes it). Called from status polls and the timer.
+   * Returns true if it started the machine.
+   */
+  async function finishRestart(): Promise<boolean> {
+    const pending = StartPurpose.safeParse(await store.getFlag("restart-for"));
+    if (!pending.success) return false;
+    const s = await vm.status();
+    if (s.power !== "deallocated" && s.power !== "stopped") return false;
+    await store.setFlag("restart-for", null);
+    try {
+      await startVm(pending.data);
+      return true;
+    } catch (e) {
+      console.error("restart at new size failed", e);
+      return false;
+    }
+  }
+
   async function routes(req: Req): Promise<Res> {
     const { method, path } = req;
     const seg = path.split("/").filter(Boolean);
@@ -177,7 +200,21 @@ export function createApp(deps: AppDeps) {
     // ---------------- machine
     if (seg[0] === "vm") {
       need(a, "machine");
-      if (method === "GET" && seg[1] === "status") return ok(await fullStatus());
+      if (method === "GET" && seg[1] === "status") {
+        await finishRestart();
+        return ok(await fullStatus());
+      }
+      if (method === "POST" && seg[1] === "restart") {
+        need(a, "owner");
+        const { purpose } = z.object({ purpose: StartPurpose.default("dev") }).parse(req.body ?? {});
+        const live = (await store.listMeetings()).some((m) => m.status === "live" || m.status === "joining");
+        if (live) throw new HttpError(409, "A meeting is running. Restart after it ends.");
+        const s = await vm.status();
+        if (s.power !== "running" && s.power !== "starting") return ok(await startVm(purpose));
+        await store.setFlag("restart-for", purpose);
+        await vm.deallocate();
+        return ok({ ...(await vm.status()), agentHealthy: false });
+      }
       if (method === "POST" && seg[1] === "start") {
         const { purpose } = z.object({ purpose: StartPurpose.default("dev") }).parse(req.body ?? {});
         return ok(await startVm(purpose));
@@ -196,6 +233,7 @@ export function createApp(deps: AppDeps) {
         }
       }
       if (method === "POST" && seg[1] === "stop") {
+        await store.setFlag("restart-for", null); // a plain stop cancels a pending restart
         await vm.deallocate();
         return ok({ ...(await vm.status()), agentHealthy: false });
       }
@@ -436,6 +474,12 @@ export function createApp(deps: AppDeps) {
     }
     u.lastSampleAt = d.toISOString();
     await store.putUsage(u);
+
+    // A "restart at this size" whose machine has now stopped: start it again (resized).
+    if (await finishRestart()) {
+      log.push("restarted at the new size");
+      return log;
+    }
 
     // 2. release the public IP once deallocated
     if ((s.power === "deallocated" || s.power === "stopped") && s.publicIp) {

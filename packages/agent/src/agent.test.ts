@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { teamsWebUrl } from "./bot/adapters/teams.js";
 import { countFromLabel } from "./bot/adapters/types.js";
 import { zoomWebClientUrl } from "./bot/adapters/zoom.js";
+import { joinStall } from "./bot/join-watch.js";
 import { ffmpegArgs } from "./bot/recorder.js";
 import { ShotEngine } from "./bot/shots.js";
 import { ControlLink } from "./control.js";
@@ -52,6 +53,26 @@ describe("platform URLs", () => {
   it("parses participant counts", () => {
     expect(countFromLabel("Show everyone (12)")).toBe(12);
     expect(countFromLabel("People")).toBeNull();
+  });
+});
+
+describe("join watch", () => {
+  const MIN = 60_000;
+  it("fails a join that stays outside the meeting for 3 minutes", () => {
+    let s = joinStall("prejoin", false, null, 0);
+    expect(s).toEqual({ stalledSince: 0, fail: null });
+    s = joinStall("unknown", false, s.stalledSince, 2 * MIN);
+    expect(s.fail).toBeNull();
+    s = joinStall("unknown", false, s.stalledSince, 3 * MIN);
+    expect(s.fail).toMatch(/sign-in may be needed/i);
+    expect(joinStall("prejoin", false, 0, 3 * MIN).fail).toMatch(/join screen/i);
+  });
+
+  it("doesn't count time in the waiting room or the meeting", () => {
+    expect(joinStall("waiting", false, 0, 10 * MIN)).toEqual({ stalledSince: null, fail: null });
+    expect(joinStall("unknown", true, 0, 10 * MIN)).toEqual({ stalledSince: null, fail: null });
+    // after leaving the waiting room the clock starts again
+    expect(joinStall("unknown", false, null, 10 * MIN)).toEqual({ stalledSince: 10 * MIN, fail: null });
   });
 });
 

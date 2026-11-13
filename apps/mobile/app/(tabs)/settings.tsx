@@ -1,4 +1,4 @@
-import { ACCENTS, VM_SIZES, type AgentSettings, type VmSize } from "@cloudpilot/shared";
+import { ACCENTS, VM_SIZES, hoursLeftAt, type AgentSettings, type VmSize } from "@cloudpilot/shared";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
@@ -64,6 +64,7 @@ export default function Settings() {
   const vm = usePoll(() => client!.vmStatus(), 20_000);
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
   const profiles = usePoll(() => client!.vmProfiles(), 0);
+  const usage = usePoll(() => client!.usage(), 60_000);
   const [advanced, setAdvanced] = useState(false);
   const remote = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
@@ -149,6 +150,22 @@ export default function Settings() {
                       disabled={busy}
                       onChange={(dev) => run(async () => (await client!.setVmProfiles({ dev }), profiles.reload()))}
                     />
+                    {usage.data && hoursLeftAt(profiles.data.dev, usage.data) !== null && (
+                      <T v="sub">At this size, the rest of this month's budget covers about {Math.floor(hoursLeftAt(profiles.data.dev, usage.data)!)} hours.</T>
+                    )}
+                    {vm.data?.power === "running" && vm.data.size !== profiles.data.dev && (
+                      <Btn
+                        small
+                        label="Restart at this size"
+                        busy={busy}
+                        onPress={() =>
+                          Alert.alert("Restart at your work size?", "Running commands and terminals stop. It's back in about 2 minutes.", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Restart", onPress: () => run(async () => (await client!.vmRestart("dev"), vm.reload())) },
+                          ])
+                        }
+                      />
+                    )}
                     <SizePicker
                       label="For meetings (default: the size it was set up with)"
                       value={profiles.data.meetings}

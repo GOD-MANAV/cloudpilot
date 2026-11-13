@@ -91,6 +91,7 @@ bot.on("finished", async (f) => {
   try {
     const r = await delivery.deliver(f);
     const bits = [
+      f.outcome === "failed" && f.note ? f.note : null,
       `${f.shots.length} screenshots`,
       r.driveFolderUrl ? "saved to Drive" : null,
       r.emailed ? "emailed" : null,

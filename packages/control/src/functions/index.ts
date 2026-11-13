@@ -1,5 +1,5 @@
 import { app, type HttpRequest } from "@azure/functions";
-import { createApp } from "../app.js";
+import { API_METHODS, createApp } from "../app.js";
 import { AzureVmController } from "../azure.js";
 import { loadConfig } from "../config.js";
 import { TableStore } from "../store.js";
@@ -30,7 +30,7 @@ function getApp() {
 
 app.http("api", {
   route: "{*path}",
-  methods: ["GET", "POST", "PATCH", "DELETE"],
+  methods: [...API_METHODS],
   authLevel: "anonymous", // we do our own bearer-token auth
   handler: async (req: HttpRequest) => {
     let body: unknown;

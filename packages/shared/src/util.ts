@@ -52,6 +52,16 @@ export function affordableHoursPerMonth(size: VmSize, monthlyBudgetUsd: number):
   return left / (VM_SIZES[size].usdPerHour + PUBLIC_IP_USD_PER_HOUR);
 }
 
+/**
+ * Hours of runtime the rest of this month's budget buys at `size`, or null for a size
+ * we have no price for (e.g. a deployed size outside VM_SIZES).
+ */
+export function hoursLeftAt(size: string, usage: { budgetUsd: number; monthToDateUsd: number }): number | null {
+  const s = VM_SIZES[size as VmSize];
+  if (!s || usage.budgetUsd <= 0) return null;
+  return Math.max(0, usage.budgetUsd - usage.monthToDateUsd) / (s.usdPerHour + PUBLIC_IP_USD_PER_HOUR);
+}
+
 /** 64-bit difference hash (dHash) from a 9x8 grayscale buffer → hex string. */
 export function dHashFromGray9x8(gray: ArrayLike<number>): string {
   if (gray.length !== 72) throw new Error("dHash expects 9x8 = 72 grayscale pixels");

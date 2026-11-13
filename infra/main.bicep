@@ -13,7 +13,7 @@ param prefix string = 'cloudpilot'
 @description('Globally-unique DNS label → <label>.<region>.cloudapp.azure.com')
 param dnsLabel string
 
-@allowed(['Standard_B2als_v2', 'Standard_B2as_v2', 'Standard_B4als_v2', 'Standard_B2s', 'Standard_B2ms'])
+@allowed(['Standard_B2als_v2', 'Standard_B2as_v2', 'Standard_B4als_v2', 'Standard_B4as_v2', 'Standard_B8als_v2', 'Standard_B2s', 'Standard_B2ms'])
 param vmSize string = 'Standard_B2als_v2'
 
 param adminUsername string = 'pilot'

@@ -1,4 +1,4 @@
-import { ACCENTS, VM_SIZES, type AgentSettings, type ThemeName, type VmSize } from "@cloudpilot/shared";
+import { ACCENTS, VM_SIZES, hoursLeftAt, type AgentSettings, type ThemeName, type VmSize } from "@cloudpilot/shared";
 import { useEffect, useState } from "react";
 import { useApi, useAction, usePoll } from "../api";
 
@@ -23,6 +23,7 @@ export function Settings() {
   const vm = usePoll(() => client!.vmStatus(), 20_000);
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
   const profiles = usePoll(() => client!.vmProfiles(), 0);
+  const usage = usePoll(() => client!.usage(), 60_000);
   const settings = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
   const accounts = usePoll(running ? () => client!.accounts() : null, 0, [running]);
@@ -97,6 +98,28 @@ export function Settings() {
                 disabled={busy}
                 onChange={(meetings) => run(async () => (await client!.setVmProfiles({ meetings }), profiles.reload()), "Saved. Applies on next start")}
               />
+            </div>
+          )}
+          {profiles.data && usage.data && hoursLeftAt(profiles.data.dev, usage.data) !== null && (
+            <span className="sub" style={{ display: "block", marginTop: 8 }}>
+              At your work size, the rest of this month's budget covers about {Math.floor(hoursLeftAt(profiles.data.dev, usage.data)!)} hours.
+            </span>
+          )}
+          {profiles.data && vm.data?.power === "running" && vm.data.size !== profiles.data.dev && (
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+              <span className="sub" style={{ flex: "1 1 220px" }}>
+                It's running at {VM_SIZES[vm.data.size as VmSize]?.label ?? vm.data.size} now.
+              </span>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={busy}
+                onClick={() =>
+                  confirm("Restart the machine at your work size? Running commands and terminals stop; it's back in about 2 minutes.") &&
+                  run(async () => (await client!.vmRestart("dev"), vm.reload()), "Restarting at the new size")
+                }
+              >
+                Restart at this size
+              </button>
             </div>
           )}
           <span className="sub" style={{ display: "block", marginTop: 8 }}>

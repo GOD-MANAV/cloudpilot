@@ -27,7 +27,15 @@ The script prints two QR codes:
 - **Authenticator QR.** Add it to Google Authenticator, Aegis or 1Password. Signing in always needs the 6-digit code.
 - **Pairing QR.** Scan it from the app's *Pair this phone* screen. It contains the Control URL and your **owner key**.
 
-The owner key is shown once, so keep it in a password manager. Signing in needs both the key and a fresh code, and 5 wrong attempts lock sign-in for 15 minutes.
+The owner key is shown once, so keep it in a password manager. Signing in needs both the key and a fresh code, and 5 wrong attempts from the same network lock sign-in from there for 15 minutes.
+
+### Updating later
+Run the same command again from the cloned folder (`git pull` first to get the latest code). The script sees the existing deployment and **keeps your keys, address and machine**. It only:
+- republishes the control plane (the Azure Function);
+- opens SSH for one address with `CP_SSH_FROM=<your-ip>/32`, or closes it with `CP_SSH_FROM=off`;
+- changes the monthly budget with `CP_BUDGET_USD=<dollars>`.
+
+Then update the software on the machine itself: start it, open the app's terminal and run `sudo cloudpilot-update`. To start over from scratch, delete the resource group first (`az group delete -n cloudpilot-rg`).
 
 ## 1b. Install the Android app (no Expo account needed)
 GitHub builds the APK for you on every change to the app.
@@ -74,7 +82,7 @@ Go to **App → AI Access → New link**. Pick the scopes (`mcp` is enough for c
   claude mcp add --transport http cloudpilot https://<fqdn>/mcp --header "Authorization: Bearer <token>"
   ```
 - **Clients that can't set headers** (for example a claude.ai custom connector): use `https://<fqdn>/mcp/<token>` as the URL.
-- **Terminal:** use the terminal in the app. SSH is closed by default; to open it for one address, re-run `CP_SSH_FROM=<your-ip>/32 bash infra/bootstrap.sh`.
+- **Terminal:** use the terminal in the app. SSH is closed by default; to open it for one address, re-run `CP_SSH_FROM=<your-ip>/32 bash infra/bootstrap.sh` (and `CP_SSH_FROM=off` to close it again).
 
 AI links run as the unprivileged `dev` user. They can build and test in `/home/dev` but cannot read your meeting sign-ins, Google tokens or the machine's keys. See [SECURITY.md](SECURITY.md).
 
@@ -84,7 +92,7 @@ Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 - **Start or stop** from the app. Meetings with *auto-join* start the VM 8 minutes early by themselves.
 - The VM deallocates after **20 idle minutes**. A meeting, an open terminal or live session, or a busy CPU counts as activity. It also shuts down at 02:00 as a safety net.
 - **Update the agent:** in the app's terminal, run `sudo cloudpilot-update`.
-- **Bigger machine for AI work:** *Settings → Machine → Advanced: machine size* has two sizes. One applies when you start the machine yourself (AI links, terminal, builds). The other applies when a meeting starts it. Both begin at the size `bootstrap.sh` set up, and the machine switches size each time it starts. Sizes above 4 vCPU may need a quota increase on Azure for Students. If Azure refuses a meeting size, the meeting still starts at the current size.
+- **Bigger machine for AI work:** *Settings → Machine → Advanced: machine size* has two sizes. One applies when you start the machine yourself (AI links, terminal, builds). The other applies when a meeting starts it. Both begin at the size `bootstrap.sh` set up, and the machine switches size each time it starts. Sizes above 4 vCPU may need a quota increase on Azure for Students. If Azure refuses a meeting size, the meeting still starts at the current size. If the machine is already running at another size, *Restart at this size* stops it and brings it back at your work size in about 2 minutes (not while a meeting is running).
 
 ## Troubleshooting
 | Symptom | Fix |
@@ -92,4 +100,4 @@ Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 | `NotAvailableForSubscription` | `CP_VM_SIZE=Standard_B2s bash infra/bootstrap.sh`, or choose another `CP_LOCATION` |
 | Meet says "You can't join this video call" | Sign in to Google in the VM's Chrome (step 2), or ask the host to allow guests |
 | Drive or email stopped after a week | Your OAuth app is still in *Testing*. Publish it and reconnect |
-| App says "budget reached" | Settings → Budget → *Allow this month*, or raise `CP_BUDGET_USD` |
+| App says "budget reached" | Settings → Budget → *Allow this month*, or re-run `CP_BUDGET_USD=<dollars> bash infra/bootstrap.sh` |

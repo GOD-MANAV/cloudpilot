@@ -10,6 +10,7 @@ import { autoLeaveDecision, type Settings } from "../settings.js";
 import { adapterFor, type MeetingAdapter } from "./adapters/index.js";
 import type { AdapterContext } from "./adapters/types.js";
 import { MEETING_SINK, Recorder, ensureAudioSink } from "./recorder.js";
+import { joinStall } from "./join-watch.js";
 import { ShotEngine } from "./shots.js";
 import { X11, sleep } from "./x11.js";
 
@@ -203,6 +204,7 @@ export class BotRunner extends EventEmitter<BotEvents> {
     const started = Date.now();
     const hardEnd = Date.parse(meeting.endAt) + meeting.overrunMinutes * 60_000;
     let waitingSince: number | null = null;
+    let stalledSince: number | null = null;
     let aloneSince: number | null = null;
     let lowSince: number | null = null;
     let peak = 0;
@@ -245,6 +247,10 @@ export class BotRunner extends EventEmitter<BotEvents> {
 
       if (where === "ended") return this.finish(dir, inMeeting ? "done" : "failed", inMeeting ? null : "Couldn't join (meeting ended or access denied)");
 
+      const stall = joinStall(where, inMeeting, stalledSince, Date.now());
+      stalledSince = stall.stalledSince;
+      if (stall.fail) return this.leaveAndFinish(dir, "failed", stall.fail);
+
       if (inMeeting) {
         const n = await adapter.participants(page).catch(() => null);
         if (n !== this.state.participants) this.set({ participants: n });
@@ -261,10 +267,11 @@ export class BotRunner extends EventEmitter<BotEvents> {
         } else aloneSince = null;
       }
 
-      if (Date.now() > hardEnd && !meeting.joinNowAt) return this.leaveAndFinish(dir, "done", "Left at scheduled end");
-      if (meeting.joinNowAt && Date.now() - started > 4 * 3600_000) return this.leaveAndFinish(dir, "done", "Left after 4 hours");
+      if (Date.now() > hardEnd && !meeting.joinNowAt)
+        return this.leaveAndFinish(dir, inMeeting ? "done" : "failed", inMeeting ? "Left at scheduled end" : "Never got in before the scheduled end");
+      if (meeting.joinNowAt && Date.now() - started > 4 * 3600_000) return this.leaveAndFinish(dir, inMeeting ? "done" : "failed", "Left after 4 hours");
     }
-    return this.leaveAndFinish(dir, "done", "Left on request");
+    return this.leaveAndFinish(dir, inMeeting ? "done" : "failed", inMeeting ? "Left on request" : "Stopped before getting in");
   }
 
   private async leaveAndFinish(dir: string, outcome: "done" | "failed", note: string) {

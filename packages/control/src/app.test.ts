@@ -1,6 +1,6 @@
 import { sha256Hex, type VmPowerState } from "@cloudpilot/shared";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createApp, type Req } from "./app.js";
+import { API_METHODS, createApp, type Req } from "./app.js";
 import type { VmController } from "./azure.js";
 import { MemoryStore } from "./store.js";
 
@@ -101,6 +101,16 @@ describe("auth", () => {
   });
 });
 
+describe("function host", () => {
+  it("routes every HTTP method the client sends to the control plane", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile(new URL("../../shared/src/client.ts", import.meta.url), "utf8");
+    const used = new Set([...src.matchAll(/this\.ctl\([^;]*?method: "([A-Z]+)"/g)].map((m) => m[1]!));
+    expect(used.size).toBeGreaterThan(2);
+    for (const m of used) expect(API_METHODS).toContain(m);
+  });
+});
+
 describe("machine", () => {
   it("starts, stops and only resizes when stopped", async () => {
     expect((await call("POST", "/vm/start")).status).toBe(200);
@@ -146,6 +156,39 @@ describe("machine", () => {
     await call("POST", "/vm/stop");
     expect((await call("PUT", "/vm/profiles", { dev: "Standard_B2as_v2" })).status).toBe(200);
     expect((await call("PUT", "/vm/profiles", { dev: "Standard_B2s" })).status).toBe(200);
+  });
+
+  it("restarts a running machine at the dev size", async () => {
+    await call("POST", "/vm/start");
+    await call("PUT", "/vm/profiles", { dev: "Standard_B4as_v2" });
+    const r = await call("POST", "/vm/restart", { purpose: "dev" });
+    expect(r.status).toBe(200);
+    expect(vm.power).toBe("deallocated");
+    // the next status poll finishes the restart
+    expect(((await call("GET", "/vm/status")).body as { power: string }).power).toBe("running");
+    expect(vm.size).toBe("Standard_B4as_v2");
+    expect(vm.calls).toEqual(["start", "deallocate", "resize:Standard_B4as_v2", "start"]);
+    // and only once
+    await call("POST", "/vm/stop");
+    await call("GET", "/vm/status");
+    expect(vm.power).toBe("deallocated");
+  });
+
+  it("finishes a pending restart from the timer too, but never during a meeting", async () => {
+    await call("POST", "/vm/start");
+    await call("PUT", "/vm/profiles", { dev: "Standard_B2as_v2" });
+    await call("POST", "/vm/restart");
+    await api.tick();
+    expect(vm.power).toBe("running");
+    expect(vm.size).toBe("Standard_B2as_v2");
+
+    const m = (await call("POST", "/meetings", meeting)).body as { id: string };
+    await call("PATCH", `/meetings/${m.id}`, { status: "live" });
+    expect((await call("POST", "/vm/restart")).status).toBe(409);
+    expect(vm.power).toBe("running");
+    // AI links with machine scope can't restart it
+    const t = ((await call("POST", "/tokens", { label: "ai", scopes: ["machine"], ttlHours: 1 })).body as { token: string }).token;
+    expect((await call("POST", "/vm/restart", undefined, t)).status).toBe(403);
   });
 
   it("still starts a meeting when Azure refuses the meeting size", async () => {

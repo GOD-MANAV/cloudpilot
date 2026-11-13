@@ -195,6 +195,10 @@ export class CloudPilotClient {
   vmStart(purpose: StartPurpose = "dev") {
     return this.ctl(VmStatus, "/vm/start", { method: "POST", body: JSON.stringify({ purpose }) });
   }
+  /** Stop the machine and start it again at the size set for `purpose`. */
+  vmRestart(purpose: StartPurpose = "dev") {
+    return this.ctl(VmStatus, "/vm/restart", { method: "POST", body: JSON.stringify({ purpose }) });
+  }
   vmProfiles() {
     return this.ctl(VmProfiles, "/vm/profiles");
   }

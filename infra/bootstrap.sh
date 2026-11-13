@@ -4,6 +4,10 @@
 #   git clone https://github.com/<you>/cloudpilot.git && cd cloudpilot
 #   bash infra/bootstrap.sh
 #
+# Running it again later is safe: it finds the existing deployment, keeps your keys,
+# republishes the control plane, and applies CP_SSH_FROM (an address, or "off") and
+# CP_BUDGET_USD if you set them.
+#
 # Options (env vars): CP_RG, CP_LOCATION, CP_PREFIX, CP_DNS_LABEL, CP_VM_SIZE,
 #                     CP_BUDGET_USD, CP_BUDGET_EMAIL, CP_REPO, CP_REF, CP_TZ
 set -euo pipefail
@@ -27,6 +31,58 @@ bold "CloudPilot bootstrap"
 az account show >/dev/null 2>&1 || die "Not logged in. In Cloud Shell this is automatic; elsewhere run: az login"
 SUB_NAME=$(az account show --query name -o tsv)
 info "Subscription: $SUB_NAME"
+
+# Build the control-plane zip and upload it to the Function app.
+publish_control() {
+  pushd "$ROOT" >/dev/null
+  npm ci --workspace packages/shared --workspace packages/control --include-workspace-root --no-audit --no-fund
+  npm run build --workspace packages/shared --workspace packages/control
+  local zip
+  zip=$(bash packages/control/pack.sh)
+  popd >/dev/null
+  az functionapp deployment source config-zip -g "$RG" -n "$1" --src "$zip" -o none
+}
+
+# ---------------------------------------------------------------- already deployed?
+# Re-running must never replace your keys, address or machine. On an existing
+# deployment we only update the control plane and apply the options you passed.
+if az vm show -g "$RG" -n "${PREFIX}-vm" -o none 2>/dev/null; then
+  bold "Found an existing CloudPilot in $RG: updating it (your keys and machine stay as they are)"
+  FUNC=$(az functionapp list -g "$RG" --query "[?starts_with(name, '${PREFIX}-ctl-')].name | [0]" -o tsv)
+  [[ -n "$FUNC" ]] || die "Couldn't find the control-plane Function app in $RG."
+
+  if [[ -n "${CP_SSH_FROM:-}" ]]; then
+    NSG="${PREFIX}-nsg"
+    if [[ "$CP_SSH_FROM" == "off" ]]; then
+      az network nsg rule delete -g "$RG" --nsg-name "$NSG" -n ssh -o none 2>/dev/null || true
+      info "SSH closed."
+    elif [[ "$CP_SSH_FROM" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]]; then
+      az network nsg rule create -g "$RG" --nsg-name "$NSG" -n ssh --priority 110 --direction Inbound \
+        --access Allow --protocol Tcp --source-address-prefixes "$CP_SSH_FROM" --destination-port-ranges 22 -o none
+      info "SSH open for $CP_SSH_FROM only. Close it again with CP_SSH_FROM=off."
+    else
+      die "CP_SSH_FROM must look like 203.0.113.7/32, or be 'off'."
+    fi
+  fi
+
+  if [[ -n "${CP_BUDGET_USD:-}" ]]; then
+    [[ "$CP_BUDGET_USD" =~ ^[0-9]+$ ]] || die "CP_BUDGET_USD must be a whole number of dollars."
+    az functionapp config appsettings set -g "$RG" -n "$FUNC" --settings "CP_BUDGET_USD=$CP_BUDGET_USD" -o none
+    info "Monthly budget is now \$$CP_BUDGET_USD."
+  fi
+
+  bold "Publishing the latest control plane"
+  publish_control "$FUNC"
+  bold "✅ Updated"
+  cat <<EOF
+  Your owner key, authenticator and devices are unchanged.
+  ▸ Update the software on the machine: start it, open the app's terminal and run
+      sudo cloudpilot-update
+  ▸ To start over from scratch, delete the resource group first: az group delete -n $RG
+EOF
+  exit 0
+fi
+
 [[ -n "$REPO" ]] || die "Set CP_REPO to the public git URL of your CloudPilot fork."
 [[ "$REPO" == https://* ]] || die "CP_REPO must be an https:// git URL the VM can clone (got: $REPO)"
 
@@ -83,12 +139,7 @@ FUNC=$(jq -r .functionAppName.value <<<"$OUT")
 
 # ---------------------------------------------------------------- control plane code
 bold "5/6 Publishing the control plane"
-pushd "$ROOT" >/dev/null
-npm ci --workspace packages/shared --workspace packages/control --include-workspace-root --no-audit --no-fund
-npm run build --workspace packages/shared --workspace packages/control
-ZIP=$(bash packages/control/pack.sh)
-popd >/dev/null
-az functionapp deployment source config-zip -g "$RG" -n "$FUNC" --src "$ZIP" -o none
+publish_control "$FUNC"
 
 # ---------------------------------------------------------------- done
 bold "6/6 Waiting for the VM to finish first boot (cloud-init ≈ 8–12 min)"
