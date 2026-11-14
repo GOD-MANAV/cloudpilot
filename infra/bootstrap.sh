@@ -187,6 +187,7 @@ cat <<EOF
   ▸ Signing in = owner key (from the QR) + the 6-digit code from your authenticator.
   ▸ Each phone/browser gets its own session you can revoke under AI access → Devices.
   ▸ Lost this window? Run: cat $CRED   (then delete it once saved: rm $CRED)
+    If your Cloud Shell is "ephemeral" (no storage), that file is gone when the session ends: save the key now.
 
 EOF
 

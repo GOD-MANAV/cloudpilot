@@ -100,7 +100,20 @@ loginctl enable-linger "$ADMIN" || warn "enable-linger failed"
 
 step "CloudPilot agent"
 if [ ! -d "$REPO_DIR/.git" ]; then
-  echo "The CloudPilot code isn't on this machine ($REPO_DIR). Redeploy: az group delete -n cloudpilot-rg --yes, then bash infra/bootstrap.sh"
+  # An interrupted first boot may never have downloaded the code. The repo and branch this
+  # machine was deployed from are still in its first-boot settings, so fetch it from there.
+  CLONE_LINE=$(grep -h -o 'git clone --depth 1 --branch [^ ]* [^ ]*' \
+    /var/lib/cloud/instance/scripts/runcmd /var/lib/cloud/instance/user-data.txt 2>/dev/null | head -n 1)
+  read -r _ _ _ _ _ REF URL <<<"$CLONE_LINE"
+  if [ -n "${URL:-}" ] && [ -n "${REF:-}" ]; then
+    echo "Downloading CloudPilot ($URL, $REF)"
+    rm -rf "$REPO_DIR"
+    git clone --depth 1 --branch "$REF" "$URL" "$REPO_DIR" || warn "download failed"
+  fi
+fi
+if [ ! -d "$REPO_DIR/.git" ]; then
+  echo "The CloudPilot code isn't on this machine ($REPO_DIR) and couldn't be downloaded."
+  echo "Redeploy: az group delete -n cloudpilot-rg --yes, then bash infra/bootstrap.sh"
   exit 1
 fi
 chown -R "$ADMIN:$ADMIN" "$REPO_DIR"
