@@ -69,7 +69,9 @@ systemctl daemon-reload
 systemctl enable --now cloudpilot-firewall || warn "sandbox firewall didn't start"
 
 step "Desktop password"
-if [ ! -s /etc/cloudpilot/kasm.env ]; then
+# Both halves must exist: the password KasmVNC checks (~/.kasmpasswd) and the copy Caddy
+# sends (kasm.env). An earlier failed setup can leave only one, so redo both if either is missing.
+if [ ! -s /etc/cloudpilot/kasm.env ] || [ ! -s "$HOME_DIR/.kasmpasswd" ]; then
   KASM_PW=$(openssl rand -hex 16)
   if printf '%s\n%s\n' "$KASM_PW" "$KASM_PW" | sudo -u "$ADMIN" -H vncpasswd -u "$ADMIN" -wo; then
     echo "CP_KASM_BASIC=$(printf '%s:%s' "$ADMIN" "$KASM_PW" | base64 -w0)" >/etc/cloudpilot/kasm.env
@@ -97,6 +99,10 @@ chown "$ADMIN:$ADMIN" "$HOME_DIR/.vnc/xstartup" && chmod 755 "$HOME_DIR/.vnc/xst
 loginctl enable-linger "$ADMIN" || warn "enable-linger failed"
 
 step "CloudPilot agent"
+if [ ! -d "$REPO_DIR/.git" ]; then
+  echo "The CloudPilot code isn't on this machine ($REPO_DIR). Redeploy: az group delete -n cloudpilot-rg --yes, then bash infra/bootstrap.sh"
+  exit 1
+fi
 chown -R "$ADMIN:$ADMIN" "$REPO_DIR"
 if [ ! -f "$REPO_DIR/packages/agent/dist/main.js" ]; then
   (cd "$REPO_DIR" && sudo -u "$ADMIN" npm ci --workspace packages/shared --workspace packages/agent --include-workspace-root) || warn "npm ci failed"
@@ -105,6 +111,8 @@ fi
 
 step "Starting services"
 systemctl daemon-reload
+# Services that crashed during a broken setup may have hit systemd's restart limit.
+systemctl reset-failed caddy cloudpilot-agent cloudpilot-desktop 2>/dev/null || true
 systemctl enable --now cloudpilot-desktop || warn "desktop didn't start"
 systemctl enable --now cloudpilot-agent || warn "agent didn't start"
 systemctl enable caddy >/dev/null 2>&1

@@ -1,7 +1,7 @@
 import { VM_SIZES, type VmSize } from "@cloudpilot/shared";
 import { router } from "expo-router";
-import { useEffect } from "react";
-import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Alert, Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAction, usePoll } from "../../src/hooks";
 import { Cols, MaxWidth } from "../../src/layout";
@@ -58,6 +58,25 @@ export default function Home() {
   const hoursLeft = u && size && VM_SIZES[size] ? Math.max(0, (u.budgetUsd - u.monthToDateUsd) / VM_SIZES[size].usdPerHour) : null;
   const power = vm.data?.power;
   const on = power === "running";
+  // When the machine is on but CloudPilot on it doesn't answer, say so instead of "Starting…" forever.
+  const [waitingSince, setWaitingSince] = useState<number | null>(null);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (on && !running) setWaitingSince((w) => w ?? Date.now());
+    else setWaitingSince(null);
+  }, [on, running]);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const stuck = waitingSince !== null && Date.now() - waitingSince > 6 * 60_000;
+  const needsAgent = (go: () => void) => () =>
+    running
+      ? go()
+      : Alert.alert(
+          on ? "Not ready yet" : "Machine is off",
+          on ? "The machine is on, but CloudPilot on it isn't answering yet. Wait a minute and try again." : "Start the machine first (about a minute).",
+        );
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.bg }}>
@@ -89,9 +108,17 @@ export default function Home() {
                     <Stat label="On for" value={fmtDuration(vm.data?.since ?? null) || "–"} />
                     <Stat label="Disk free" value={agent.data?.diskFreeGb != null ? `${agent.data.diskFreeGb} GB` : "–"} />
                   </View>
-                  <T v="sub">
-                    {agent.data?.idle.shutdownInMinutes != null ? `Stops itself in ${agent.data.idle.shutdownInMinutes} min if nothing is happening.` : "Starting services…"}
-                  </T>
+                  {stuck ? (
+                    <T v="sub" color={c.warnText}>
+                      The machine is on, but CloudPilot on it isn't answering. Stop it to save credit, then repair it from Azure Cloud Shell (see "Troubleshooting" in the self-hosting guide).
+                    </T>
+                  ) : (
+                    <T v="sub">
+                      {agent.data?.idle.shutdownInMinutes != null
+                        ? `Stops itself in ${agent.data.idle.shutdownInMinutes} min if nothing is happening.`
+                        : "Starting services… (about 1–2 minutes)"}
+                    </T>
+                  )}
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <Btn style={{ flex: 1 }} kind="danger" icon="power" label="Stop" busy={busy} onPress={() => run(async () => (await client!.vmStop(), vm.reload()))} />
                     <Btn style={{ flex: 1 }} kind="secondary" label="Keep on 1 h" disabled={!running || busy} onPress={() => run(() => client!.keepOn(1))} />
@@ -134,8 +161,8 @@ export default function Home() {
           </Cols>
 
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Quick icon="monitor" label="Desktop" onPress={() => router.push("/desktop")} />
-            <Quick icon="terminal" label="Terminal" onPress={() => router.push("/terminal")} />
+            <Quick icon="monitor" label="Desktop" onPress={needsAgent(() => router.push("/desktop"))} />
+            <Quick icon="terminal" label="Terminal" onPress={needsAgent(() => router.push("/terminal"))} />
             <Quick icon="link" label="AI links" onPress={() => router.push("/ai")} />
             <Quick icon="image" label="Notes" onPress={() => router.push("/notes")} />
           </View>

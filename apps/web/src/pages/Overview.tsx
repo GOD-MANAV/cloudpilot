@@ -1,4 +1,5 @@
 import { VM_SIZES, type Meeting, type VmSize } from "@cloudpilot/shared";
+import { useEffect, useState } from "react";
 import { useApi, useAction, usePoll } from "../api";
 import { BotChip, Icon, PowerChip, fmtDay, fmtDuration, fmtTime } from "../ui";
 
@@ -10,6 +11,19 @@ export function Overview({ go }: { go: (r: string) => void }) {
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
   const agent = usePoll(running ? () => client!.agentStatus() : null, 8000, [running]);
   const { busy, run } = useAction();
+  // On but not answering for 6+ minutes: say so instead of "Starting…" forever.
+  const [waitingSince, setWaitingSince] = useState<number | null>(null);
+  const [, tick] = useState(0);
+  const on = vm.data?.power === "running";
+  useEffect(() => {
+    if (on && !running) setWaitingSince((w) => w ?? Date.now());
+    else setWaitingSince(null);
+  }, [on, running]);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const stuck = waitingSince !== null && Date.now() - waitingSince > 6 * 60_000;
 
   const next: Meeting | undefined = meetings.data?.find((m) => Date.parse(m.endAt) > Date.now() && m.status !== "cancelled");
   const size = vm.data?.size as VmSize | undefined;
@@ -52,6 +66,13 @@ export function Overview({ go }: { go: (r: string) => void }) {
               ? `On for ${fmtDuration(vm.data.since)}${agent.data?.idle.shutdownInMinutes != null ? ` · stops in ${agent.data.idle.shutdownInMinutes} min if idle` : ""}`
               : "Costs nothing while stopped (just the disk)."}
           </span>
+          {vm.data?.power === "running" && !running && (
+            <span className="sub" style={{ color: stuck ? "var(--warn-text)" : undefined }}>
+              {stuck
+                ? "The machine is on, but CloudPilot on it isn't answering. Stop it to save credit, then repair it from Azure Cloud Shell (Troubleshooting in the self-hosting guide)."
+                : "Starting services… (about 1–2 minutes)"}
+            </span>
+          )}
           {size && <span className="sub">{VM_SIZES[size]?.label ?? size}</span>}
         </section>
         <section className="card">

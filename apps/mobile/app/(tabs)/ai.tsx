@@ -93,8 +93,8 @@ function ActivityFeed() {
             }
           />
         )}
-        <Btn small kind="secondary" icon="terminal" label="Terminal" onPress={() => router.push("/terminal")} />
-        <Btn small kind="secondary" icon="monitor" label="Desktop" onPress={() => router.push("/desktop")} />
+        <Btn small kind="secondary" icon="terminal" label="Terminal" disabled={!connected} onPress={() => router.push("/terminal")} />
+        <Btn small kind="secondary" icon="monitor" label="Desktop" disabled={!connected} onPress={() => router.push("/desktop")} />
       </View>
       {paused && <Chip tone="warn" label={`AI access paused until ${new Date(paused).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />}
       {entries.length === 0 && <Empty text={connected ? "Nothing yet. When Claude or another AI uses the machine, it shows up here live." : "Start the machine to watch AI activity."} />}
