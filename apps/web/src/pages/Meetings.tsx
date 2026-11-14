@@ -1,5 +1,5 @@
 import { PLATFORM_COLOR, PLATFORM_LABEL, detectPlatform, type Meeting, type MeetingInput } from "@cloudpilot/shared";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useApi, useAction, usePoll } from "../api";
 import { Icon, fmtDay, fmtTime } from "../ui";
 
@@ -19,7 +19,15 @@ function AddMeeting({ onDone }: { onDone: () => void }) {
     guestName: "",
     drive: true,
     email: true,
+    autoJoin: false,
   });
+  // Starts from your default (Settings → Machine), which is off: scheduled only.
+  useEffect(() => {
+    void client!
+      .controlSettings()
+      .then((s) => setF((cur) => ({ ...cur, autoJoin: s.autoStartNewMeetings })))
+      .catch(() => undefined);
+  }, [client]);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -30,6 +38,7 @@ function AddMeeting({ onDone }: { onDone: () => void }) {
         url: f.url.trim(),
         startAt: s.toISOString(),
         endAt: new Date(s.getTime() + Number(f.minutes) * 60_000).toISOString(),
+        autoJoin: f.autoJoin,
         presence: f.presence,
         joinAs: f.joinAs,
         guestName: f.joinAs === "guest" ? f.guestName || undefined : undefined,
@@ -81,6 +90,9 @@ function AddMeeting({ onDone }: { onDone: () => void }) {
         )}
       </div>
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }} title="Off: scheduled only. Nothing runs until you press Join now.">
+          <input type="checkbox" style={{ width: 18, height: 18 }} checked={f.autoJoin} onChange={(e) => setF({ ...f, autoJoin: e.target.checked })} /> Start the machine and join by itself
+        </label>
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input type="checkbox" style={{ width: 18, height: 18 }} checked={f.drive} onChange={(e) => setF({ ...f, drive: e.target.checked })} /> Save to Drive
         </label>

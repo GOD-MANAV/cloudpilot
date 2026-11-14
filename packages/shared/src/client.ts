@@ -11,6 +11,7 @@ import {
   type MeetingInput,
   type VmSize,
   VmProfiles,
+  ControlSettings,
   type VmProfilesPatch,
   type StartPurpose,
 } from "./schemas.js";
@@ -194,6 +195,12 @@ export class CloudPilotClient {
   /** Starts the machine at the size set for `purpose` (default: AI and dev tasks). */
   vmStart(purpose: StartPurpose = "dev") {
     return this.ctl(VmStatus, "/vm/start", { method: "POST", body: JSON.stringify({ purpose }) });
+  }
+  controlSettings() {
+    return this.ctl(ControlSettings, "/settings");
+  }
+  setControlSettings(patch: Partial<ControlSettings>) {
+    return this.ctl(ControlSettings, "/settings", { method: "PUT", body: JSON.stringify(patch) });
   }
   /** Stop the machine and start it again at the size set for `purpose`. */
   vmRestart(purpose: StartPurpose = "dev") {

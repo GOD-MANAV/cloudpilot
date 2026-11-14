@@ -102,7 +102,8 @@ write_files:
   - path: /etc/systemd/system/caddy.service.d/override.conf
     content: |
       [Service]
-      EnvironmentFile=/etc/cloudpilot/kasm.env
+      # "-": HTTPS keeps working even if the desktop password wasn't created.
+      EnvironmentFile=-/etc/cloudpilot/kasm.env
 
   - path: /etc/kasmvnc/kasmvnc.yaml
     content: |
@@ -202,12 +203,16 @@ runcmd:
   - id dev >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --user-group dev
   - chmod 750 /home/dev
   - systemctl daemon-reload && systemctl enable --now cloudpilot-firewall
+  # (runcmd is one shell script: keep "set -e" inside a subshell so one failure here
+  #  can't stop the steps below, which start CloudPilot itself.)
   - |
-    set -e
-    KASM_PW=$(openssl rand -hex 16)
-    echo "CP_KASM_BASIC=$(printf '%s:%s' '__ADMIN__' "$KASM_PW" | base64 -w0)" > /etc/cloudpilot/kasm.env
-    chgrp caddy /etc/cloudpilot/kasm.env && chmod 640 /etc/cloudpilot/kasm.env
-    printf '%s\n%s\n' "$KASM_PW" "$KASM_PW" | sudo -u __ADMIN__ -H vncpasswd -u __ADMIN__ -wo
+    (
+      set -e
+      KASM_PW=$(openssl rand -hex 16)
+      echo "CP_KASM_BASIC=$(printf '%s:%s' '__ADMIN__' "$KASM_PW" | base64 -w0)" > /etc/cloudpilot/kasm.env
+      chgrp caddy /etc/cloudpilot/kasm.env && chmod 640 /etc/cloudpilot/kasm.env
+      printf '%s\n%s\n' "$KASM_PW" "$KASM_PW" | sudo -u __ADMIN__ -H vncpasswd -u __ADMIN__ -wo
+    ) || echo "CloudPilot: desktop password setup failed (live desktop may not work)"
   - cp /etc/cloudpilot/agent.env.tpl /etc/cloudpilot/agent.env
   - chown root:__ADMIN__ /etc/cloudpilot/agent.env && chmod 640 /etc/cloudpilot/agent.env
   # --- desktop session: openbox + pulseaudio, no DE prompt ---
@@ -224,15 +229,15 @@ runcmd:
   - chown __ADMIN__:__ADMIN__ /home/__ADMIN__/.vnc/xstartup && chmod 755 /home/__ADMIN__/.vnc/xstartup
   - loginctl enable-linger __ADMIN__
   # --- agent ---
-  - git clone --depth 1 --branch __AGENT_REF__ __AGENT_REPO__ /opt/cloudpilot
+  - test -d /opt/cloudpilot/.git || git clone --depth 1 --branch __AGENT_REF__ __AGENT_REPO__ /opt/cloudpilot
   - chown -R __ADMIN__:__ADMIN__ /opt/cloudpilot
   - cd /opt/cloudpilot && sudo -u __ADMIN__ npm ci --workspace packages/shared --workspace packages/agent --include-workspace-root
   - cd /opt/cloudpilot && sudo -u __ADMIN__ npm run build --workspace packages/shared --workspace packages/agent
-  # --- AI tooling for dev sessions ---
-  - npm install -g @anthropic-ai/claude-code
   # --- start everything ---
   - systemctl daemon-reload
   - systemctl enable --now cloudpilot-desktop cloudpilot-agent
   - systemctl restart caddy
+  # --- AI tooling for dev sessions (optional, after CloudPilot is up) ---
+  - npm install -g @anthropic-ai/claude-code || echo "CloudPilot - Claude Code install failed, install it later from the terminal"
 
 final_message: "CloudPilot ready after $UPTIME seconds"

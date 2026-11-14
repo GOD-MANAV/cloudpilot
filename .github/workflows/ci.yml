@@ -27,7 +27,15 @@ jobs:
         run: |
           az bicep install
           az bicep build --file infra/main.bicep --stdout > /dev/null
-      - name: Validate cloud-init YAML
-        run: python3 -c "import yaml; yaml.safe_load(open('infra/cloud-init.yaml'))"
+      - name: Validate cloud-init YAML and its first-boot script
+        run: |
+          python3 - <<'EOF'
+          import yaml
+          d = yaml.safe_load(open("infra/cloud-init.yaml"))
+          bad = [x for x in d["runcmd"] if not isinstance(x, str)]
+          assert not bad, f"runcmd items must be plain strings (a ': ' makes YAML read a mapping): {bad}"
+          open("/tmp/runcmd.sh", "w").write("#!/bin/sh\n" + "\n".join(d["runcmd"]) + "\n")
+          EOF
+          sh -n /tmp/runcmd.sh
       - name: ShellCheck bootstrap
         run: shellcheck -S warning infra/bootstrap.sh packages/control/pack.sh

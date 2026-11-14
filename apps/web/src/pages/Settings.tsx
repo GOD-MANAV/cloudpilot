@@ -24,6 +24,7 @@ export function Settings() {
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
   const profiles = usePoll(() => client!.vmProfiles(), 0);
   const usage = usePoll(() => client!.usage(), 60_000);
+  const cs = usePoll(() => client!.controlSettings(), 0);
   const settings = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
   const accounts = usePoll(running ? () => client!.accounts() : null, 0, [running]);
@@ -77,6 +78,42 @@ export function Settings() {
             Allow over budget this month
           </button>
         </div>
+        {cs.data && (
+          <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--surface2)", paddingTop: 10 }}>
+            <span className="sub">
+              The machine is off unless you start it. These are the only ways it starts or stays on by itself.
+            </span>
+            <label style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+              <span>
+                <b>New meetings start the machine by themselves</b>
+                <br />
+                <span className="sub">Off: meetings are only scheduled; press Join now when you want it. Each meeting can still be switched on.</span>
+              </span>
+              <button
+                className="switch"
+                role="switch"
+                aria-checked={cs.data.autoStartNewMeetings}
+                aria-label="New meetings start the machine by themselves"
+                disabled={busy}
+                onClick={() => run(async () => (await client!.setControlSettings({ autoStartNewMeetings: !cs.data!.autoStartNewMeetings }), cs.reload()), "Saved")}
+              />
+            </label>
+            <label className="field" style={{ maxWidth: 320 }}>
+              <span>Safety stop: turn off after running this long (never during a meeting)</span>
+              <select
+                value={cs.data.maxRunHours}
+                disabled={busy}
+                onChange={(e) => run(async () => (await client!.setControlSettings({ maxRunHours: Number(e.target.value) }), cs.reload()), "Saved")}
+              >
+                {[2, 4, 6, 8, 12, 24, 0].map((h) => (
+                  <option key={h} value={h}>
+                    {h === 0 ? "No limit" : `${h} hours`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         <details style={{ borderTop: "1px solid var(--surface2)", paddingTop: 10 }}>
           <summary style={{ cursor: "pointer", fontWeight: 600 }}>Advanced: machine size</summary>
           <span className="sub" style={{ display: "block", margin: "8px 0" }}>

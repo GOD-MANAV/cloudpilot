@@ -65,6 +65,7 @@ export default function Settings() {
   const running = vm.data?.power === "running" && vm.data.agentHealthy;
   const profiles = usePoll(() => client!.vmProfiles(), 0);
   const usage = usePoll(() => client!.usage(), 60_000);
+  const cs = usePoll(() => client!.controlSettings(), 0);
   const [advanced, setAdvanced] = useState(false);
   const remote = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
@@ -177,6 +178,29 @@ export default function Settings() {
                       A running machine keeps its size until it next starts. Bigger sizes use the budget faster, and Azure for Students may refuse sizes above 4 vCPU; meetings then start at the current size.
                     </T>
                   </View>
+                )}
+                {cs.data && (
+                  <>
+                    <Row
+                      title="New meetings start the machine"
+                      sub={cs.data.autoStartNewMeetings ? "On: new meetings wake the machine 8 min early" : "Off: meetings are only scheduled; tap Join now when you want"}
+                      right={
+                        <Toggle
+                          value={cs.data.autoStartNewMeetings}
+                          disabled={busy}
+                          label="New meetings start the machine"
+                          onChange={(v) => run(async () => (await client!.setControlSettings({ autoStartNewMeetings: v }), cs.reload()))}
+                        />
+                      }
+                    />
+                    <Stepper
+                      label="Safety stop after (never during a meeting)"
+                      value={cs.data.maxRunHours}
+                      options={[2, 4, 6, 8, 12, 24, 0]}
+                      fmt={(n) => (n === 0 ? "No limit" : `${n} h`)}
+                      onChange={(n) => run(async () => (await client!.setControlSettings({ maxRunHours: n }), cs.reload()))}
+                    />
+                  </>
                 )}
                 {s && (
                   <Stepper

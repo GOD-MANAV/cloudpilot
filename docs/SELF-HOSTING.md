@@ -105,14 +105,21 @@ AI links run as the unprivileged `dev` user. They can build and test in `/home/d
 Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 
 ## 5. Day to day
-- **Start or stop** from the app. Meetings with *auto-join* start the VM 8 minutes early by themselves.
-- The VM deallocates after **20 idle minutes**. A meeting, an open terminal or live session, or a busy CPU counts as activity. It also shuts down at 02:00 as a safety net.
+- **The machine is off unless you start it.** Setup turns it off when it finishes. It only starts:
+  - when you tap **Start** (or **Join now** on a meeting), or
+  - for a meeting you switched to *Start the machine and join by itself*. New meetings are **scheduled only** by default; change that default under *Settings → Machine → New meetings start the machine*.
+- It turns itself off after **20 idle minutes** (a meeting, an open terminal or live session, or a busy CPU counts as activity), and as safety nets:
+  - after the **safety stop** time (default 8 hours, *Settings → Machine*; never during a meeting),
+  - every night at 02:00,
+  - when the monthly budget is used up (never during a meeting).
+- While it's off you pay only for its disk (about $2.40 a month) and pennies for the control plane.
 - **Update the agent:** in the app's terminal, run `sudo cloudpilot-update`.
 - **Bigger machine for AI work:** *Settings → Machine → Advanced: machine size* has two sizes. One applies when you start the machine yourself (AI links, terminal, builds). The other applies when a meeting starts it. Both begin at the size `bootstrap.sh` set up, and the machine switches size each time it starts. Sizes above 4 vCPU may need a quota increase on Azure for Students. If Azure refuses a meeting size, the meeting still starts at the current size. If the machine is already running at another size, *Restart at this size* stops it and brings it back at your work size in about 2 minutes (not while a meeting is running).
 
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
+| `https://<fqdn>/health` doesn't answer after setup | First boot can take 25 minutes. Then look inside: `az vm run-command invoke -g cloudpilot-rg -n cloudpilot-vm --command-id RunShellScript --query 'value[0].message' -o tsv --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'` |
 | `NotAvailableForSubscription` | `CP_VM_SIZE=Standard_B2s bash infra/bootstrap.sh`, or choose another `CP_LOCATION` |
 | Meet says "You can't join this video call" | Sign in to Google in the VM's Chrome (step 2), or ask the host to allow guests |
 | Drive or email stopped after a week | Your OAuth app is still in *Testing*. Publish it and reconnect |

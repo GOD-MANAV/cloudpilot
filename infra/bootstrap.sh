@@ -142,11 +142,22 @@ bold "5/6 Publishing the control plane"
 publish_control "$FUNC"
 
 # ---------------------------------------------------------------- done
-bold "6/6 Waiting for the VM to finish first boot (cloud-init ≈ 8–12 min)"
-for _ in $(seq 1 90); do
-  if curl -fsS "https://$FQDN/health" >/dev/null 2>&1; then info "Agent is up."; break; fi
+bold "6/6 Waiting for the VM to finish first boot (usually 10–25 min on the small size)"
+UP=0
+for _ in $(seq 1 210); do
+  if curl -fsS --max-time 10 "https://$FQDN/health" >/dev/null 2>&1; then UP=1; info "Agent is up."; break; fi
   sleep 10
 done
+if [[ "$UP" == 1 ]]; then
+  # Nothing should run (or cost credit) until you ask for it.
+  az vm deallocate -g "$RG" -n "${PREFIX}-vm" --no-wait -o none
+  info "Turned the machine off. Start it from the app whenever you need it (about a minute)."
+else
+  warn "The machine didn't answer within 35 minutes. Your keys below are still valid; nothing needs redeploying yet."
+  warn "Check what first boot is doing (takes about a minute):"
+  echo "    az vm run-command invoke -g $RG -n ${PREFIX}-vm --command-id RunShellScript --query 'value[0].message' -o tsv \\"
+  echo "      --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'"
+fi
 
 qr() {
   if command -v qrencode >/dev/null; then qrencode -t ansiutf8 "$1";

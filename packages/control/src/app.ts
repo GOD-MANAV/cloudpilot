@@ -6,6 +6,7 @@ import {
   VM_SIZES,
   VmSize,
   StartPurpose,
+  ControlSettings,
   type VmProfiles,
   authenticate,
   detectPlatform,
@@ -133,6 +134,11 @@ export function createApp(deps: AppDeps) {
     return deps.budgetUsd > 0 && u.usd >= deps.budgetUsd && override !== monthOf(d);
   }
 
+  async function controlSettings(): Promise<ControlSettings> {
+    const saved = ControlSettings.safeParse(JSON.parse((await store.getFlag("control-settings")) ?? "{}"));
+    return saved.success ? saved.data : ControlSettings.parse({});
+  }
+
   /** Per-purpose sizes; unset ones mean "the size the machine was deployed with". */
   async function profiles(): Promise<VmProfiles> {
     let deployed = await store.getFlag("vm-deployed-size");
@@ -165,6 +171,7 @@ export function createApp(deps: AppDeps) {
       }
     }
     await vm.start();
+    await store.setFlag("running-since", String(now().getTime())); // the safety-stop clock
     return { ...(await vm.status()), agentHealthy: false };
   }
 
@@ -246,6 +253,19 @@ export function createApp(deps: AppDeps) {
         return ok({ ...(await vm.status()), agentHealthy: false });
       }
     }
+    if (path === "/settings") {
+      if (method === "GET") {
+        need(a, "meetings");
+        return ok(await controlSettings());
+      }
+      if (method === "PUT") {
+        need(a, "owner");
+        const patch = ControlSettings.partial().parse(req.body);
+        const next = ControlSettings.parse({ ...(await controlSettings()), ...stripUndefined(patch) });
+        await store.setFlag("control-settings", JSON.stringify(next));
+        return ok(next);
+      }
+    }
     if (method === "GET" && path === "/usage") {
       need(a, "machine");
       return ok(await usage());
@@ -265,6 +285,9 @@ export function createApp(deps: AppDeps) {
       }
       if (method === "POST" && seg.length === 1) {
         const input = MeetingInput.parse(req.body);
+        // Not said either way: use your default (off unless you changed it).
+        const given = (req.body as { autoJoin?: unknown } | undefined)?.autoJoin;
+        if (typeof given !== "boolean") input.autoJoin = (await controlSettings()).autoStartNewMeetings;
         if (Date.parse(input.endAt) <= Date.parse(input.startAt)) throw new HttpError(400, "endAt must be after startAt");
         const m: Meeting = Meeting.parse({
           ...input,
@@ -493,6 +516,22 @@ export function createApp(deps: AppDeps) {
       await vm.deallocate();
       log.push("budget reached: deallocating");
       return log;
+    }
+
+    // 3b. safety stop: nothing should keep the machine on for hours by accident
+    //     (a stuck build keeps the CPU busy, which the on-machine idle check counts as work).
+    if (s.power === "running" || s.power === "starting") {
+      const since = Number((await store.getFlag("running-since")) ?? 0);
+      if (!since) await store.setFlag("running-since", String(d.getTime()));
+      const { maxRunHours } = await controlSettings();
+      if (since && maxRunHours > 0 && !live && d.getTime() - since >= maxRunHours * 3600_000) {
+        await store.setFlag("running-since", null);
+        await vm.deallocate();
+        log.push(`safety stop after ${maxRunHours} h`);
+        return log;
+      }
+    } else if (s.power === "deallocated" || s.power === "stopped") {
+      await store.setFlag("running-since", null);
     }
 
     // 4. wake for meetings

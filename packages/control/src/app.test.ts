@@ -72,6 +72,7 @@ beforeEach(async () => {
 });
 
 const meeting = {
+  autoJoin: true,
   title: "Ops Mgmt",
   url: "https://meet.google.com/abc-defg-hij",
   startAt: "2026-11-15T04:30:00Z",
@@ -218,6 +219,47 @@ describe("meetings + tick", () => {
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ platform: "meet", status: "scheduled", presence: "camera-off" });
     expect((await call("POST", "/meetings", { ...meeting, endAt: meeting.startAt })).status).toBe(400);
+  });
+
+  it("only schedules new meetings by default; the default can be changed", async () => {
+    const { autoJoin: _, ...plain } = meeting;
+    expect((await call("GET", "/settings")).body).toEqual({ autoStartNewMeetings: false, maxRunHours: 8 });
+    const m = (await call("POST", "/meetings", plain)).body as { autoJoin: boolean };
+    expect(m.autoJoin).toBe(false);
+    clock = new Date("2026-11-15T04:25:00Z");
+    await api.tick();
+    expect(vm.calls).not.toContain("start"); // nothing runs for a scheduled-only meeting
+    expect(vm.power).toBe("deallocated");
+
+    expect((await call("PUT", "/settings", { autoStartNewMeetings: true })).status).toBe(200);
+    expect(((await call("POST", "/meetings", plain)).body as { autoJoin: boolean }).autoJoin).toBe(true);
+    // an explicit choice always wins
+    expect(((await call("POST", "/meetings", { ...plain, autoJoin: false })).body as { autoJoin: boolean }).autoJoin).toBe(false);
+    expect((await call("PUT", "/settings", { maxRunHours: 99 })).status).toBe(400);
+  });
+
+  it("safety-stops a machine left running, but never during a meeting", async () => {
+    await call("PUT", "/settings", { maxRunHours: 2 });
+    await call("POST", "/vm/start");
+    clock = new Date(clock.getTime() + 119 * 60_000);
+    await api.tick();
+    expect(vm.power).toBe("running");
+    clock = new Date(clock.getTime() + 2 * 60_000);
+    await api.tick();
+    expect(vm.power).toBe("deallocated");
+
+    await call("POST", "/vm/start");
+    const m = (await call("POST", "/meetings", meeting)).body as { id: string };
+    await call("PATCH", `/meetings/${m.id}`, { status: "live" });
+    clock = new Date(clock.getTime() + 3 * 3600_000);
+    await api.tick();
+    expect(vm.power).toBe("running");
+
+    await call("PUT", "/settings", { maxRunHours: 0 }); // no limit
+    await call("PATCH", `/meetings/${m.id}`, { status: "done" });
+    clock = new Date(clock.getTime() + 10 * 3600_000);
+    await api.tick();
+    expect(vm.power).toBe("running");
   });
 
   it("wakes the VM 8 minutes before an auto-join meeting, not earlier", async () => {

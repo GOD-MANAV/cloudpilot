@@ -24,7 +24,15 @@ export default function NewMeeting() {
   const [presence, setPresence] = useState<"camera-off" | "static-image">("camera-off");
   const [joinAs, setJoinAs] = useState<"profile" | "guest">("profile");
   const [guestName, setGuestName] = useState("");
-  const [autoJoin, setAutoJoin] = useState(true);
+  // Off unless you changed the default in Settings: the meeting is scheduled, nothing runs until you say so.
+  const [autoJoin, setAutoJoin] = useState(false);
+  useEffect(() => {
+    void client!
+      .controlSettings()
+      .then((s) => setAutoJoin(s.autoStartNewMeetings))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [record, setRecord] = useState(true);
   const [drive, setDrive] = useState(true);
   const [email, setEmail] = useState(true);
@@ -122,7 +130,8 @@ export default function NewMeeting() {
                 ]}
               />
               {joinAs === "guest" && <TextInput {...input} placeholder="Guest name" value={guestName} onChangeText={setGuestName} />}
-              <Row label="Auto-join on time" value={autoJoin} onChange={setAutoJoin} />
+              <Row label="Start the machine and join by itself" value={autoJoin} onChange={setAutoJoin} />
+              {!autoJoin && <T v="sub">Scheduled only. Nothing runs until you tap Join now.</T>}
               <Row label="Record the meeting" value={record} onChange={setRecord} />
               <Row label="Screenshot on slide change" value={slides} onChange={setSlides} />
               <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>

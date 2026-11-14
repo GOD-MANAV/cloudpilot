@@ -45,6 +45,18 @@ export const VmProfiles = z.object({
   deployed: z.string(),
 });
 export type VmProfiles = z.infer<typeof VmProfiles>;
+/**
+ * Machine-wide settings kept in the cloud (control plane), so the app and the website
+ * share them and they apply while the machine is off.
+ */
+export const ControlSettings = z.object({
+  /** Whether new meetings start the machine by themselves. Off: they're only scheduled. */
+  autoStartNewMeetings: z.boolean().default(false),
+  /** Safety stop: stop the machine after this many hours running (0 = no limit). Never during a meeting. */
+  maxRunHours: z.number().int().min(0).max(24).default(8),
+});
+export type ControlSettings = z.infer<typeof ControlSettings>;
+
 export type VmProfilesPatch = Partial<Pick<VmProfiles, "dev" | "meetings">>;
 
 /** Fixed costs billed even while the VM is off (USD/month). */
@@ -114,7 +126,12 @@ export const MeetingInput = z.object({
   url: z.string().url(),
   startAt: z.string().datetime({ offset: true }),
   endAt: z.string().datetime({ offset: true }),
-  autoJoin: z.boolean().default(true),
+  /**
+   * Start the machine by itself (8 min early) and join. Off = the meeting is only
+   * scheduled: nothing runs until you press "Join now". When omitted, the control plane
+   * uses ControlSettings.autoStartNewMeetings (off unless you change it).
+   */
+  autoJoin: z.boolean().default(false),
   /** "profile" = the signed-in Chrome profile on the VM; "guest" = anonymous with guestName. */
   joinAs: z.enum(["profile", "guest"]).default("profile"),
   guestName: z.string().max(80).optional(),
