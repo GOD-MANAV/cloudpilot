@@ -9,7 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect, useRef, useState } from "react";
 import { AppState, View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../src/session";
 import { Btn, Logo, T } from "../src/ui";
 
@@ -55,6 +55,9 @@ function LockGate({ children }: { children: React.ReactNode }) {
 function Root() {
   const { ready, session, c, dark } = useSession();
   const segments = useSegments();
+  const insets = useSafeAreaInsets();
+  // Screens outside the tabs: keep their bottom bars above the phone's navigation buttons.
+  const pad = { contentStyle: { backgroundColor: c.bg, paddingBottom: insets.bottom } };
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(c.bg);
   }, [c.bg]);
@@ -75,11 +78,11 @@ function Root() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="pair" options={{ headerShown: false }} />
-        <Stack.Screen name="meeting-new" options={{ title: "New meeting", presentation: "modal" }} />
-        <Stack.Screen name="notes" options={{ title: "Meeting notes" }} />
-        <Stack.Screen name="desktop" options={{ title: "Live desktop" }} />
-        <Stack.Screen name="terminal" options={{ title: "Terminal" }} />
-        <Stack.Screen name="accounts" options={{ title: "Meeting accounts" }} />
+        <Stack.Screen name="meeting-new" options={{ title: "New meeting", presentation: "modal", ...pad }} />
+        <Stack.Screen name="notes" options={{ title: "Meeting notes", ...pad }} />
+        <Stack.Screen name="desktop" options={{ title: "Live desktop", ...pad }} />
+        <Stack.Screen name="terminal" options={{ title: "Terminal", ...pad }} />
+        <Stack.Screen name="accounts" options={{ title: "Meeting accounts", ...pad }} />
       </Stack>
     </LockGate>
   );

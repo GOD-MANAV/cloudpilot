@@ -182,62 +182,9 @@ write_files:
       systemctl restart cloudpilot-agent
 
 runcmd:
-  # --- Node.js 22 ---
-  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  - apt-get install -y nodejs
-  # --- Google Chrome (real Chrome: Meet/Zoom/Teams web clients behave best with it) ---
-  - curl -fsSLo /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-  - apt-get install -y /tmp/chrome.deb
-  # --- Caddy (automatic HTTPS) ---
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
-  - apt-get update && apt-get install -y caddy
-  # --- KasmVNC (web-native live desktop) ---
-  - curl -fsSLo /tmp/kasmvnc.deb https://github.com/kasmtech/KasmVNC/releases/download/v1.5.2/kasmvncserver_ubuntu_noble_1.5.2_amd64.deb
-  - apt-get install -y /tmp/kasmvnc.deb
-  - usermod -aG ssl-cert,docker __ADMIN__
-  # --- secrets generated on the box ---
-  - mkdir -p /etc/cloudpilot /data && chown __ADMIN__:__ADMIN__ /data && chmod 700 /data
-  - chmod 750 /home/__ADMIN__
-  # --- sandbox user for AI work ---
-  - id dev >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --user-group dev
-  - chmod 750 /home/dev
-  - systemctl daemon-reload && systemctl enable --now cloudpilot-firewall
-  # (runcmd is one shell script: keep "set -e" inside a subshell so one failure here
-  #  can't stop the steps below, which start CloudPilot itself.)
-  - |
-    (
-      set -e
-      KASM_PW=$(openssl rand -hex 16)
-      echo "CP_KASM_BASIC=$(printf '%s:%s' '__ADMIN__' "$KASM_PW" | base64 -w0)" > /etc/cloudpilot/kasm.env
-      chgrp caddy /etc/cloudpilot/kasm.env && chmod 640 /etc/cloudpilot/kasm.env
-      printf '%s\n%s\n' "$KASM_PW" "$KASM_PW" | sudo -u __ADMIN__ -H vncpasswd -u __ADMIN__ -wo
-    ) || echo "CloudPilot: desktop password setup failed (live desktop may not work)"
-  - cp /etc/cloudpilot/agent.env.tpl /etc/cloudpilot/agent.env
-  - chown root:__ADMIN__ /etc/cloudpilot/agent.env && chmod 640 /etc/cloudpilot/agent.env
-  # --- desktop session: openbox + pulseaudio, no DE prompt ---
-  - sudo -u __ADMIN__ mkdir -p /home/__ADMIN__/.vnc
-  - sudo -u __ADMIN__ touch /home/__ADMIN__/.vnc/.de-was-selected
-  - |
-    cat > /home/__ADMIN__/.vnc/xstartup <<'XS'
-    #!/bin/sh
-    unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
-    pulseaudio --start --exit-idle-time=-1 || true
-    xsetroot -solid '#0b1020' 2>/dev/null || true
-    exec openbox-session
-    XS
-  - chown __ADMIN__:__ADMIN__ /home/__ADMIN__/.vnc/xstartup && chmod 755 /home/__ADMIN__/.vnc/xstartup
-  - loginctl enable-linger __ADMIN__
-  # --- agent ---
+  # Everything else lives in one re-runnable script in the repo, so a machine can also be
+  # repaired later with the same steps (see infra/vm-setup.sh).
   - test -d /opt/cloudpilot/.git || git clone --depth 1 --branch __AGENT_REF__ __AGENT_REPO__ /opt/cloudpilot
-  - chown -R __ADMIN__:__ADMIN__ /opt/cloudpilot
-  - cd /opt/cloudpilot && sudo -u __ADMIN__ npm ci --workspace packages/shared --workspace packages/agent --include-workspace-root
-  - cd /opt/cloudpilot && sudo -u __ADMIN__ npm run build --workspace packages/shared --workspace packages/agent
-  # --- start everything ---
-  - systemctl daemon-reload
-  - systemctl enable --now cloudpilot-desktop cloudpilot-agent
-  - systemctl restart caddy
-  # --- AI tooling for dev sessions (optional, after CloudPilot is up) ---
-  - npm install -g @anthropic-ai/claude-code || echo "CloudPilot - Claude Code install failed, install it later from the terminal"
+  - bash /opt/cloudpilot/infra/vm-setup.sh > /var/log/cloudpilot-setup.log 2>&1
 
 final_message: "CloudPilot ready after $UPTIME seconds"

@@ -195,7 +195,7 @@ export function Btn({
       ]}
     >
       {busy ? <ActivityIndicator color={fg} /> : icon ? <Icon name={icon} size={18} color={fg} /> : null}
-      {label ? <Text style={{ fontFamily: F.semi, fontSize: small ? 13 : 15, color: fg }}>{label}</Text> : null}
+      {label ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontFamily: F.semi, fontSize: small ? 13 : 15, color: fg, flexShrink: 1 }}>{label}</Text> : null}
     </Pressable>
   );
 }
@@ -259,7 +259,7 @@ export function Seg<T extends string>({ value, options, onChange, disabled }: { 
             onPress={() => onChange(o.v)}
             style={{ flex: 1, minHeight: 42, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.accent : "transparent", opacity: o.disabled ? 0.45 : 1 }}
           >
-            <Text style={{ fontFamily: F.semi, fontSize: 14, color: on ? c.onAccent : c.textSubtle }}>{o.label}</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: F.semi, fontSize: 14, color: on ? c.onAccent : c.textSubtle, paddingHorizontal: 4 }}>{o.label}</Text>
           </Pressable>
         );
       })}

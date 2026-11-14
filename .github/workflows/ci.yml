@@ -38,4 +38,4 @@ jobs:
           EOF
           sh -n /tmp/runcmd.sh
       - name: ShellCheck bootstrap
-        run: shellcheck -S warning infra/bootstrap.sh packages/control/pack.sh
+        run: shellcheck -S warning infra/bootstrap.sh infra/vm-setup.sh packages/control/pack.sh

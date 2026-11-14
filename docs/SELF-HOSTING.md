@@ -119,7 +119,8 @@ Revoke a link at any time. Revocation reaches the VM within 30 seconds.
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
-| `https://<fqdn>/health` doesn't answer after setup | First boot can take 25 minutes. Then look inside: `az vm run-command invoke -g cloudpilot-rg -n cloudpilot-vm --command-id RunShellScript --query 'value[0].message' -o tsv --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'` |
+| `https://<fqdn>/health` doesn't answer after setup | First boot can take 25 minutes. Then look inside: `az vm run-command invoke -g cloudpilot-rg -n cloudpilot-vm --command-id RunShellScript --query 'value[0].message' -o tsv --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloudpilot-setup.log'` |
+| Machine is running but the app says *Starting services…* forever, or Desktop/Terminal can't connect | Repair it in place (keeps your keys): in Cloud Shell, `cd ~/cloudpilot && git pull`, then `az vm run-command invoke -g cloudpilot-rg -n cloudpilot-vm --command-id RunShellScript --scripts @infra/vm-setup.sh --query 'value[0].message' -o tsv`. It ends with `CloudPilot setup: OK` or shows what failed. |
 | `NotAvailableForSubscription` | `CP_VM_SIZE=Standard_B2s bash infra/bootstrap.sh`, or choose another `CP_LOCATION` |
 | Meet says "You can't join this video call" | Sign in to Google in the VM's Chrome (step 2), or ask the host to allow guests |
 | Drive or email stopped after a week | Your OAuth app is still in *Testing*. Publish it and reconnect |

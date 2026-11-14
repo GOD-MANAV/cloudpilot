@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWide } from "../../src/layout";
 import { useSession } from "../../src/session";
 import { F, Icon } from "../../src/ui";
@@ -7,6 +8,7 @@ import { F, Icon } from "../../src/ui";
 export default function TabsLayout() {
   const { c } = useSession();
   const { wide } = useWide();
+  const insets = useSafeAreaInsets();
   const icon = (name: string) => ({ color }: { color: unknown }) => <Icon name={name} color={String(color)} size={22} />;
   return (
     <Tabs
@@ -21,7 +23,8 @@ export default function TabsLayout() {
           backgroundColor: c.bg,
           borderTopColor: c.surface2,
           borderRightColor: c.surface2,
-          ...(wide ? { width: 96, paddingTop: 24 } : { height: 72, paddingTop: 6 }),
+          // Leave room for the phone's own navigation buttons / gesture bar under the tabs.
+          ...(wide ? { width: 96, paddingTop: 24 } : { height: 64 + insets.bottom, paddingTop: 6, paddingBottom: insets.bottom + 4 }),
         },
         tabBarActiveBackgroundColor: wide ? c.surface2 : undefined,
         sceneStyle: { backgroundColor: c.bg },

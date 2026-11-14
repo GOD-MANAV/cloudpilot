@@ -208,5 +208,5 @@ else
   warn "The machine didn't answer within 35 minutes. Your keys above are still valid; nothing needs redeploying yet."
   warn "Check what first-time setup is doing (takes about a minute):"
   echo "    az vm run-command invoke -g $RG -n ${PREFIX}-vm --command-id RunShellScript --query 'value[0].message' -o tsv \\"
-  echo "      --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'"
+  echo "      --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloudpilot-setup.log'"
 fi

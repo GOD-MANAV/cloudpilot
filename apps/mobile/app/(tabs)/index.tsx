@@ -31,7 +31,7 @@ function Quick({ icon, label, onPress }: { icon: string; label: string; onPress:
       style={({ pressed }) => ({ flex: 1, minHeight: 76, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.8 : 1 })}
     >
       <Icon name={icon} color={c.accentText} />
-      <T v="sub" color={c.text} style={{ fontFamily: F.medium, fontSize: 12 }}>
+      <T v="sub" color={c.text} numberOfLines={1} style={{ fontFamily: F.medium, fontSize: 12 }}>
         {label}
       </T>
     </Pressable>
@@ -136,7 +136,7 @@ export default function Home() {
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Quick icon="monitor" label="Desktop" onPress={() => router.push("/desktop")} />
             <Quick icon="terminal" label="Terminal" onPress={() => router.push("/terminal")} />
-            <Quick icon="link" label="AI access" onPress={() => router.push("/ai")} />
+            <Quick icon="link" label="AI links" onPress={() => router.push("/ai")} />
             <Quick icon="image" label="Notes" onPress={() => router.push("/notes")} />
           </View>
 
