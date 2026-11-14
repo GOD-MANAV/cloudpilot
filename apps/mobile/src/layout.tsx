@@ -1,7 +1,7 @@
 import { Children, type ReactNode } from "react";
 import { useWindowDimensions, View } from "react-native";
 
-/** Tablet (Tab S7: ~800dp wide) or a phone in landscape → wide layouts. */
+/** Tablet (typically ~800dp wide) or a phone in landscape → wide layouts. */
 export function useWide() {
   const { width, height } = useWindowDimensions();
   return { wide: width >= 720, width, height, landscape: width > height };

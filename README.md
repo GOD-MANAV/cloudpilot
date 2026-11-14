@@ -2,6 +2,18 @@
 
 **Your own on-demand cloud computer.** It wakes up when you need it, for an AI coding session or a meeting, and shuts itself down when you don't. You control everything from an Android app or a website.
 
+<p align="center">
+  <a href="https://github.com/GOD-MANAV/cloudpilot/releases/download/android-latest/CloudPilot.apk"><img alt="Download the Android app (CloudPilot.apk)" src="https://img.shields.io/badge/Android_app-Download_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  &nbsp;
+  <a href="https://god-manav.github.io/cloudpilot/"><img alt="Open the web app" src="https://img.shields.io/badge/Web_app-Open_in_browser-2563EB?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <b>Android:</b> open the button on your phone, then install <code>CloudPilot.apk</code> (allow "Install unknown apps" when asked) ·
+  <a href="https://github.com/GOD-MANAV/cloudpilot/releases/tag/android-latest">all builds</a><br>
+  <b>Web:</b> works in any browser. Both connect to <i>your own</i> deployment: you sign in with your owner key and authenticator code (<a href="docs/SELF-HOSTING.md">set one up</a>).
+</p>
+
 - 🤖 **AI dev box.** Hand Claude Code (or any MCP client) a scoped, expiring link, and it can build, test and compile on a real Linux machine with Docker, Node, Python and git.
 - 🎥 **Meeting assistant.** Auto-joins Google Meet, Zoom and Teams on schedule, then:
   - records the meeting
@@ -48,7 +60,7 @@
 
 ## Quick start (about 15 minutes)
 
-1. Fork this repo (it must be public, or the VM can't clone it).
+1. Fork this repo (it must be public, or the VM can't clone it), then open your fork's **Actions** tab and enable workflows. No GitHub secrets are needed; see [Set up your copy on GitHub](docs/SELF-HOSTING.md#0b-set-up-your-copy-on-github-5-minutes).
 2. Open **Azure Cloud Shell (Bash)** from the portal and run:
    ```bash
    git clone https://github.com/<you>/cloudpilot.git && cd cloudpilot

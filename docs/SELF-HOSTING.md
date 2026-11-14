@@ -5,6 +5,22 @@
 - A public GitHub fork of this repo, which the VM clones on first boot.
 - Optional: a Google account for Drive and email delivery.
 
+## 0b. Set up your copy on GitHub (5 minutes)
+Nothing personal goes into GitHub: all keys are generated in Azure during step 1, and no GitHub secrets are required.
+
+1. **Fork** this repo (top right → *Fork*). Keep it **public**: the machine clones it on first boot and on every update.
+   You can also skip the fork and clone this repo directly; your machine then follows this repo's updates instead of yours.
+2. **Turn on Actions.** Forks start with workflows off. Open your fork's **Actions** tab and click *I understand my workflows, go ahead and enable them*.
+3. **Build your Android app:** **Actions → Android APK → Run workflow**. In about 20 minutes, **Releases → CloudPilot Android (latest)** in your fork has `CloudPilot.apk`. After that it rebuilds by itself whenever the app's code changes. (Just want the app? The APK on this repo's release page works with any deployment too.)
+4. **Optional: your own signing key.** Without one, builds are signed with React Native's standard debug key. Updates still install over each other, but that key is public, so anyone could build an app that installs over yours. To prevent that, create your own key once and store it as a repository secret (switching keys means uninstalling the app once and pairing again):
+   ```bash
+   keytool -genkeypair -keystore cp.keystore -storetype PKCS12 -storepass android -keypass android \
+     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=CloudPilot"
+   base64 -w0 cp.keystore   # copy the output
+   ```
+   In your fork: **Settings → Secrets and variables → Actions → New repository secret**, name `ANDROID_KEYSTORE_BASE64`, paste the output. Keep `cp.keystore` somewhere safe and never commit it.
+5. **Optional: the website.** **Settings → Pages → Build and deployment → Source: GitHub Actions**. Then **Actions → Website (GitHub Pages) → Run workflow → publish**. It appears at `https://<you>.github.io/<repo-name>/`. Run it with *unpublish* to take it down. The site only holds the app's code; you still sign in with your owner key and authenticator code.
+
 ## 1. Deploy (Azure Cloud Shell)
 Open <https://portal.azure.com> → the `>_` icon → **Bash**.
 
@@ -20,7 +36,7 @@ Optional environment variables:
 | `CP_LOCATION` | first allowed of centralindia, southindia, eastasia, … | Region |
 | `CP_VM_SIZE` | `Standard_B2als_v2` | VM size (`Standard_B2s` if v2 sizes are blocked) |
 | `CP_BUDGET_USD` | `8` | Monthly budget; the VM refuses to start past it unless you override |
-| `CP_TZ` | `India Standard Time` | Time zone for the 02:00 safety shutdown |
+| `CP_TZ` | `India Standard Time` | Time zone for the 02:00 safety shutdown. Use your own Windows time-zone name, e.g. `W. Europe Standard Time`, `Eastern Standard Time` (list: `tzutil /l` on Windows) |
 | `CP_RG` | `cloudpilot-rg` | Resource group |
 
 The script prints two QR codes:
@@ -52,7 +68,7 @@ The website is optional and **offline by default**. Publish it with **Actions �
 ## 2. Sign in to Teams (once)
 The bot joins meetings with **your** Microsoft account, signed in once in the VM's own Chrome.
 1. In the app go to **Settings → Meeting accounts → Microsoft Teams → Sign in**. The live desktop opens on Microsoft's sign-in page.
-2. Enter your institute email and password. If tapping the page doesn't bring up your keyboard, type in the **keyboard bar** under the desktop and press **Send**, then **Enter**. Use *Hide text* for the password.
+2. Enter your work or school email and password. If tapping the page doesn't bring up your keyboard, type in the **keyboard bar** under the desktop and press **Send**, then **Enter**. Use *Hide text* for the password.
 3. Approve the request in Microsoft Authenticator if asked, and choose **Stay signed in**.
 4. Back in the app, tap **Check**. It should say *Signed in*.
 

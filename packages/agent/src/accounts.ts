@@ -15,7 +15,7 @@ export const ACCOUNT_PLATFORMS = {
     signedOutHosts: ["login.microsoftonline.com", "login.live.com", "login.microsoft.com"],
     cookieDomains: ["microsoftonline.com", "login.live.com", "teams.microsoft.com", "teams.live.com", "microsoft.com", "office.com", "skype.com"],
     tips: [
-      "Use your institute account (e.g. you@college.edu) — the same one you use for classes.",
+      "Use your work or school account (e.g. you@example.edu), the one your meetings are in.",
       "Approve the sign-in in Microsoft Authenticator if asked.",
       "Tick “Stay signed in” / “Don't show this again” so the bot stays logged in for weeks.",
       "If Teams asks “Use the app or the web?”, choose “Use the web app instead”.",

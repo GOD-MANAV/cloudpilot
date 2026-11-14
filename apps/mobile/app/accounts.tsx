@@ -29,7 +29,7 @@ export default function Accounts() {
         <Card>
           <T v="h3">How signing in works</T>
           <T v="sub">1. Tap “Sign in” below. The machine's Chrome opens the Microsoft (or Zoom/Google) sign-in page and the live desktop opens here.</T>
-          <T v="sub">2. Type your institute email and password into that page — use the keyboard bar under the desktop if tapping the page doesn't bring up your keyboard.</T>
+          <T v="sub">2. Type your work or school email and password into that page — use the keyboard bar under the desktop if tapping the page doesn't bring up your keyboard.</T>
           <T v="sub">3. Approve the request in Microsoft Authenticator if asked, and choose “Stay signed in”.</T>
           <T v="sub">4. Come back and tap “Check”. The machine stays signed in for weeks; CloudPilot warns you before a meeting if it ever gets signed out.</T>
           <T v="sub" color={c.okText}>Your password goes only to Microsoft/Zoom/Google — CloudPilot never stores it.</T>

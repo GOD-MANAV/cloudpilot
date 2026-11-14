@@ -60,7 +60,7 @@ jobs:
           # Replace the template's debug keystore so updates keep installing over each other.
           echo "$KEYSTORE" | base64 -d > app/debug.keystore
 
-      - name: Build release APK (arm64 — Galaxy S26 / Tab S7)
+      - name: Build release APK (arm64, which covers almost every Android phone and tablet from the last decade)
         working-directory: apps/mobile/android
         run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
 
