@@ -59,6 +59,14 @@ if ! command -v vncserver >/dev/null 2>&1; then
 fi
 usermod -aG ssl-cert,docker "$ADMIN" || warn "couldn't add $ADMIN to ssl-cert/docker"
 
+step "Caddy settings"
+# Machines set up before this fix: make the desktop's permission check a plain request
+# (see the comment in infra/cloud-init.yaml), or the live desktop can't connect.
+if [ -f /etc/caddy/Caddyfile ] && grep -q 'uri /auth/desktop' /etc/caddy/Caddyfile && ! grep -q 'header_up -Upgrade' /etc/caddy/Caddyfile; then
+  sed -i 's#^\([[:space:]]*\)uri /auth/desktop$#&\n\1header_up -Upgrade\n\1header_up -Connection#' /etc/caddy/Caddyfile
+  echo "Updated the Caddyfile for the live desktop."
+fi
+
 step "Folders and the sandbox user"
 mkdir -p /etc/cloudpilot /data
 chown "$ADMIN:$ADMIN" /data && chmod 700 /data

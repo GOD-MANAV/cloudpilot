@@ -9,6 +9,22 @@ import { registerPush } from "../../src/push";
 import { useSession } from "../../src/session";
 import { BotChip, Btn, Card, Chip, Empty, ErrorText, F, Icon, Logo, PowerChip, T, fmtDay, fmtDuration, fmtTime } from "../../src/ui";
 
+/** Friendly names for the regions bootstrap.sh picks from; anything else shows as-is. */
+const REGIONS: Record<string, string> = {
+  centralindia: "Central India",
+  southindia: "South India",
+  westindia: "West India",
+  eastasia: "East Asia",
+  southeastasia: "Southeast Asia",
+  uaenorth: "UAE North",
+  eastus: "East US",
+  eastus2: "East US 2",
+  westus2: "West US 2",
+  northeurope: "North Europe",
+  westeurope: "West Europe",
+};
+const regionName = (r: string) => REGIONS[r] ?? r;
+
 function Stat({ label, value }: { label: string; value: string }) {
   const { c } = useSession();
   return (
@@ -87,12 +103,18 @@ export default function Home() {
         <MaxWidth>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <View style={{ flex: 1 }}>
+              {/* Short name + region instead of the long address, which never fit. */}
               <T v="sub" numberOfLines={1}>
-                {vm.data?.fqdn ?? vm.data?.region ?? "Connecting…"}
+                {vm.data ? [vm.data.fqdn?.split(".")[0], regionName(vm.data.region)].filter(Boolean).join(" · ") : "Connecting…"}
               </T>
               <T v="h1">Your machine</T>
             </View>
-            <Logo />
+            <Pressable accessibilityRole="button" accessibilityLabel="Settings" hitSlop={8} onPress={() => router.push("/settings")}>
+              <Logo />
+              <View style={{ position: "absolute", right: -4, bottom: -4, width: 22, height: 22, borderRadius: 11, backgroundColor: c.surface2, borderWidth: 2, borderColor: c.bg, alignItems: "center", justifyContent: "center" }}>
+                <Icon name="settings" size={12} color={c.text} />
+              </View>
+            </Pressable>
           </View>
           <ErrorText text={vm.error} />
 

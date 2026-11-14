@@ -93,6 +93,11 @@ write_files:
       __FQDN__:8443 {
         forward_auth 127.0.0.1:8787 {
           uri /auth/desktop
+          # Ask "is this person allowed?" as a plain request. Passing the desktop's
+          # websocket "Upgrade" on to the agent turns the check itself into a websocket,
+          # which reads as a refusal and breaks the live desktop.
+          header_up -Upgrade
+          header_up -Connection
         }
         reverse_proxy 127.0.0.1:6901 {
           header_up Authorization "Basic {env.CP_KASM_BASIC}"

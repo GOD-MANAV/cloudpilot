@@ -8,14 +8,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAction, usePoll } from "../../src/hooks";
 import { Cols, MaxWidth } from "../../src/layout";
 import { useSession } from "../../src/session";
-import { Btn, Card, Chip, Empty, F, Row, Seg, T, Toggle } from "../../src/ui";
+import { Btn, Card, Chip, Empty, F, Icon, Row, Seg, T, Toggle } from "../../src/ui";
 
 function Stepper({ value, options, onChange, fmt, label }: { value: number; options: number[]; onChange: (n: number) => void; fmt: (n: number) => string; label: string }) {
   const { c } = useSession();
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, gap: 10 }}>
-      <T style={{ flex: 1 }}>{label}</T>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, maxWidth: 220 }} contentContainerStyle={{ gap: 6 }}>
+    // Label on its own line, choices underneath: side by side, a long label got squeezed
+    // into a column a few letters wide on phones.
+    <View style={{ gap: 8, paddingVertical: 6 }}>
+      <T>{label}</T>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
         {options.map((o) => (
           <Pressable
             key={o}
@@ -86,7 +88,18 @@ export default function Settings() {
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.bg }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         <MaxWidth>
-          <T v="h1">Settings</T>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              hitSlop={12}
+              onPress={() => (router.canGoBack() ? router.back() : router.navigate("/"))}
+              style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}
+            >
+              <Icon name="back" color={c.text} size={20} />
+            </Pressable>
+            <T v="h1">Settings</T>
+          </View>
           <Cols>
             <View style={{ gap: 14 }}>
               <Card>

@@ -34,7 +34,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="meetings" options={{ title: "Meetings", tabBarIcon: icon("calendar") }} />
       <Tabs.Screen name="live" options={{ title: "Live", tabBarIcon: icon("video") }} />
       <Tabs.Screen name="ai" options={{ title: "AI", tabBarIcon: icon("key") }} />
-      <Tabs.Screen name="settings" options={{ title: "Settings", tabBarIcon: icon("settings") }} />
+      {/* Opened from the logo on Home, so the tab bar keeps only the everyday screens. */}
+      <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
     </Tabs>
   );
 }
