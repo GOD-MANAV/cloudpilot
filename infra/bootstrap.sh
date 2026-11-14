@@ -141,24 +141,10 @@ FUNC=$(jq -r .functionAppName.value <<<"$OUT")
 bold "5/6 Publishing the control plane"
 publish_control "$FUNC"
 
-# ---------------------------------------------------------------- done
-bold "6/6 Waiting for the VM to finish first boot (usually 10–25 min on the small size)"
-UP=0
-for _ in $(seq 1 210); do
-  if curl -fsS --max-time 10 "https://$FQDN/health" >/dev/null 2>&1; then UP=1; info "Agent is up."; break; fi
-  sleep 10
-done
-if [[ "$UP" == 1 ]]; then
-  # Nothing should run (or cost credit) until you ask for it.
-  az vm deallocate -g "$RG" -n "${PREFIX}-vm" --no-wait -o none
-  info "Turned the machine off. Start it from the app whenever you need it (about a minute)."
-else
-  warn "The machine didn't answer within 35 minutes. Your keys below are still valid; nothing needs redeploying yet."
-  warn "Check what first boot is doing (takes about a minute):"
-  echo "    az vm run-command invoke -g $RG -n ${PREFIX}-vm --command-id RunShellScript --query 'value[0].message' -o tsv \\"
-  echo "      --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'"
-fi
-
+# ---------------------------------------------------------------- your keys
+# Shown now, before the long wait: Cloud Shell can close an idle session after ~20 minutes,
+# and the keys are never shown again. They're also saved to a private file in your
+# Cloud Shell home (your own storage) in case the window closes.
 qr() {
   if command -v qrencode >/dev/null; then qrencode -t ansiutf8 "$1";
   elif python3 -c "import qrcode" 2>/dev/null || pip install --user -q qrcode 2>/dev/null; then
@@ -168,7 +154,19 @@ qr() {
 PAIR_URI="cloudpilot://pair?c=$(jq -rn --arg v "$CONTROL_URL" '$v|@uri')&k=$OWNER_TOKEN"
 OTP_URI="otpauth://totp/CloudPilot:$DNS_LABEL?secret=$TOTP_SECRET&issuer=CloudPilot&algorithm=SHA1&digits=6&period=30"
 
-bold "✅ CloudPilot deployed"
+CRED="$HOME/cloudpilot-credentials.txt"
+( umask 077; cat >"$CRED" <<EOF
+CloudPilot credentials (created $(date -u +%F)). Save them in a password manager, then delete this file: rm $CRED
+Control URL       : $CONTROL_URL
+Machine           : https://$FQDN
+Owner key         : $OWNER_TOKEN
+Authenticator key : $TOTP_SECRET
+Authenticator URI : $OTP_URI
+Pairing URI       : $PAIR_URI
+EOF
+)
+
+bold "✅ Azure is set up. Your keys (shown once; also saved to $CRED)"
 cat <<EOF
   Control URL : $CONTROL_URL
   Machine     : https://$FQDN
@@ -183,10 +181,32 @@ bold "Step B — in the CloudPilot app tap 'Pair this phone' and scan:"
 qr "$PAIR_URI"
 cat <<EOF
 
-  Owner key (keep it in a password manager — shown once):
+  Owner key (keep it in a password manager):
   $OWNER_TOKEN
 
   ▸ Signing in = owner key (from the QR) + the 6-digit code from your authenticator.
   ▸ Each phone/browser gets its own session you can revoke under AI access → Devices.
-  ▸ First meeting? Open "Live desktop" and sign in to Google/Zoom/Teams in the VM's Chrome once.
+  ▸ Lost this window? Run: cat $CRED   (then delete it once saved: rm $CRED)
+
 EOF
+
+# ---------------------------------------------------------------- first boot
+bold "6/6 Waiting for the machine's first-time setup (usually 10–25 min; you can pair your phone meanwhile)"
+UP=0
+for _ in $(seq 1 210); do
+  if curl -fsS --max-time 10 "https://$FQDN/health" >/dev/null 2>&1; then UP=1; info "CloudPilot is answering."; break; fi
+  sleep 10
+done
+if [[ "$UP" == 1 ]]; then
+  info "Letting the last setup steps finish…"
+  az vm run-command invoke -g "$RG" -n "${PREFIX}-vm" --command-id RunShellScript \
+    --scripts "cloud-init status --wait >/dev/null; cloud-init status" --query "value[0].message" -o tsv 2>/dev/null | grep -i "status" || true
+  # Nothing should run (or cost credit) until you ask for it.
+  az vm deallocate -g "$RG" -n "${PREFIX}-vm" --no-wait -o none
+  bold "✅ CloudPilot is ready and the machine is now OFF. Start it from the app whenever you need it (about a minute)."
+else
+  warn "The machine didn't answer within 35 minutes. Your keys above are still valid; nothing needs redeploying yet."
+  warn "Check what first-time setup is doing (takes about a minute):"
+  echo "    az vm run-command invoke -g $RG -n ${PREFIX}-vm --command-id RunShellScript --query 'value[0].message' -o tsv \\"
+  echo "      --scripts 'cloud-init status --long; systemctl is-active cloudpilot-agent caddy; journalctl -u cloudpilot-agent -n 30 --no-pager; tail -n 40 /var/log/cloud-init-output.log'"
+fi
