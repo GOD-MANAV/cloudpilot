@@ -62,7 +62,17 @@ jobs:
 
       - name: Build release APK (arm64, which covers almost every Android phone and tablet from the last decade)
         working-directory: apps/mobile/android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+        # Gradle downloads the Android NDK/SDK pieces it needs; a corrupted download
+        # ("Error reading Zip content") fails the build, so retry up to 3 times.
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"; then
+              exit 0
+            fi
+            echo "::warning::Build attempt $attempt failed; retrying in 20 s"
+            sleep 20
+          done
+          exit 1
 
       - name: Collect APK
         run: |
