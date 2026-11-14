@@ -69,6 +69,8 @@ export default function Settings() {
   const usage = usePoll(() => client!.usage(), 60_000);
   const cs = usePoll(() => client!.controlSettings(), 0);
   const [advanced, setAdvanced] = useState(false);
+  const [showPhoto, setShowPhoto] = useState(false);
+  const [photoLink, setPhotoLink] = useState("");
   const remote = usePoll(running ? () => client!.getSettings() : null, 0, [running]);
   const google = usePoll(running ? () => client!.googleStatus() : null, 0, [running]);
   const [s, setS] = useState<AgentSettings | null>(null);
@@ -312,23 +314,57 @@ export default function Settings() {
                   </Card>
 
                   <Card>
-                    <T v="label">Meeting accounts & camera photo</T>
+                    <T v="label">Meeting accounts</T>
                     <T v="sub">Sign in to Microsoft Teams (and Zoom/Google) once on the machine so the bot joins as you. Your password goes only to Microsoft — never stored by CloudPilot.</T>
-                    <Btn icon="key" label="Meeting accounts (Teams, Zoom, Google)" onPress={() => router.push("/accounts")} />
-                    <Btn
-                      kind="secondary"
-                      icon="image"
-                      label="Choose camera-off photo"
-                      onPress={() =>
-                        run(async () => {
-                          const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-                          const a = r.assets?.[0];
-                          if (r.canceled || !a) return;
-                          const blob = await (await fetch(a.uri)).blob();
-                          await client!.uploadPresenceImage(blob, a.mimeType === "image/png" ? "image/png" : "image/jpeg");
-                        })
-                      }
+                    <Btn icon="key" label="Meeting accounts" onPress={() => router.push("/accounts")} />
+                    <Row
+                      title="Advanced: meeting photo"
+                      sub="Shown instead of video when a meeting's camera is set to Photo"
+                      onPress={() => setShowPhoto(!showPhoto)}
+                      right={<T v="sub">{showPhoto ? "Hide" : "Show"}</T>}
                     />
+                    {showPhoto && (
+                      <View style={{ gap: 10 }}>
+                        <Btn
+                          kind="secondary"
+                          icon="image"
+                          label="Choose from this phone"
+                          onPress={() =>
+                            run(async () => {
+                              const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
+                              const a = r.assets?.[0];
+                              if (r.canceled || !a) return;
+                              const blob = await (await fetch(a.uri)).blob();
+                              await client!.uploadPresenceImage(blob, a.mimeType === "image/png" ? "image/png" : "image/jpeg");
+                              Alert.alert("Photo saved");
+                            })
+                          }
+                        />
+                        <T v="sub">Or paste a link: a direct image link, or a Google Drive / Dropbox file shared as “Anyone with the link”.</T>
+                        <TextInput
+                          style={input}
+                          placeholder="https://drive.google.com/file/d/…"
+                          placeholderTextColor={c.textSubtle}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          keyboardType="url"
+                          value={photoLink}
+                          onChangeText={setPhotoLink}
+                        />
+                        <Btn
+                          label="Use this link"
+                          disabled={!/^https:\/\/\S+$/.test(photoLink.trim())}
+                          busy={busy}
+                          onPress={() =>
+                            run(async () => {
+                              await client!.presenceImageFromLink(photoLink.trim());
+                              setPhotoLink("");
+                              Alert.alert("Photo saved", "Meetings set to Photo will show it.");
+                            })
+                          }
+                        />
+                      </View>
+                    )}
                   </Card>
 
                   <Card>

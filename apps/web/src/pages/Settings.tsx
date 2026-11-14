@@ -191,18 +191,43 @@ export function Settings() {
                   </button>
                 </div>
               ))}
-              <label className="field">
-                <span>Photo shown when camera mode is Photo</span>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  style={{ paddingTop: 9 }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void run(() => client!.uploadPresenceImage(f, f.type === "image/png" ? "image/png" : "image/jpeg"), "Photo updated");
-                  }}
-                />
-              </label>
+              <details style={{ borderTop: "1px solid var(--surface2)", paddingTop: 10 }}>
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>Advanced: meeting photo</summary>
+                <span className="sub" style={{ display: "block", margin: "8px 0" }}>Shown instead of video when a meeting's camera is set to Photo.</span>
+                <div className="grid">
+                  <label className="field">
+                    <span>Upload from this computer</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      style={{ paddingTop: 9 }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void run(() => client!.uploadPresenceImage(f, f.type === "image/png" ? "image/png" : "image/jpeg"), "Photo updated");
+                      }}
+                    />
+                  </label>
+                  <form
+                    className="field"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const input = e.currentTarget.elements.namedItem("photoLink") as HTMLInputElement;
+                      void run(async () => {
+                        await client!.presenceImageFromLink(input.value.trim());
+                        input.value = "";
+                      }, "Photo updated");
+                    }}
+                  >
+                    <span>Or use a link (direct image, or Google Drive / Dropbox shared as “Anyone with the link”)</span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input name="photoLink" type="url" required pattern="https://.*" placeholder="https://drive.google.com/file/d/…" style={{ flex: 1 }} />
+                      <button className="btn btn-secondary" disabled={busy}>
+                        Use link
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </details>
             </section>
 
             <form

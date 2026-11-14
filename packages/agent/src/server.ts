@@ -16,6 +16,7 @@ import type { ControlLink } from "./control.js";
 import type { Delivery, DeliveryReport } from "./delivery/pipeline.js";
 import type { Google } from "./delivery/google.js";
 import type { IdleWatch } from "./idle.js";
+import { LinkError, MAX_IMAGE_BYTES, fetchImageFromLink, imageType } from "./image-link.js";
 import { buildMcpServer } from "./mcp.js";
 import { SandboxFs, cleanEnv, type Sandbox } from "./sandbox.js";
 import { Settings, redact, type JsonFile } from "./settings.js";
@@ -32,6 +33,9 @@ export interface ServerDeps {
   accounts: Accounts;
   onSettings?: (s: Settings) => void;
   joinMeeting: (id: string) => Promise<void>;
+  /** For tests: replace network access used by "photo from a link". */
+  fetch?: typeof fetch;
+  resolve?: (host: string) => Promise<string[]>;
 }
 
 const MIME: Record<string, string> = {
@@ -149,8 +153,10 @@ export async function buildServer(d: ServerDeps) {
     };
   });
   app.post("/keep-on", { onRequest: guard("machine") }, async (req) => {
-    const { hours } = z.object({ hours: z.number().min(0).max(12) }).parse(req.body);
-    idle.keepOnUntil = Date.now() + hours * 3600_000;
+    // hours: 0 cancels; "forever" keeps it on until you press Stop (budget limits still apply).
+    const { hours } = z.object({ hours: z.union([z.number().min(0).max(24), z.literal("forever")]) }).parse(req.body);
+    idle.keepOnUntil = hours === "forever" ? Number.POSITIVE_INFINITY : hours > 0 ? Date.now() + hours * 3600_000 : 0;
+    idle.touch();
     return idle.status();
   });
 
@@ -258,15 +264,28 @@ export async function buildServer(d: ServerDeps) {
     d.onSettings?.(next);
     return redact(next);
   });
-  app.post("/settings/static-image", { onRequest: guard("owner"), bodyLimit: 15 * 1024 * 1024 }, async (req) => {
-    const buf = req.body as Buffer;
-    if (!Buffer.isBuffer(buf) || buf.length < 100) throw Object.assign(new Error("Send image bytes"), { statusCode: 400 });
-    const ext = req.headers["content-type"] === "image/png" ? ".png" : ".jpg";
-    const file = join(cfg.dataDir, `presence${ext}`);
+  /** The photo shown when a meeting's camera mode is "Photo". */
+  async function savePresenceImage(buf: Buffer) {
+    const type = imageType(buf);
+    if (!type) throw Object.assign(new Error("Use a PNG or JPEG image."), { statusCode: 400 });
+    const file = join(cfg.dataDir, `presence${type === "image/png" ? ".png" : ".jpg"}`);
     await writeFile(file, buf);
     const cur = await d.settings.read();
     await d.settings.write({ ...cur, staticImageFile: file });
     return { ok: true };
+  }
+  app.post("/settings/static-image", { onRequest: guard("owner"), bodyLimit: MAX_IMAGE_BYTES }, async (req) => {
+    const buf = req.body as Buffer;
+    if (!Buffer.isBuffer(buf) || buf.length < 100) throw Object.assign(new Error("Send image bytes"), { statusCode: 400 });
+    return savePresenceImage(buf);
+  });
+  app.post("/settings/static-image/from-link", { onRequest: guard("owner") }, async (req) => {
+    const { url } = z.object({ url: z.string().min(8).max(2000) }).parse(req.body);
+    const { bytes } = await fetchImageFromLink(url, { fetch: d.fetch, resolve: d.resolve }).catch((e: unknown) => {
+      if (e instanceof LinkError) throw e;
+      throw Object.assign(new Error("Couldn't download that link. Check it opens in a browser without signing in."), { statusCode: 400 });
+    });
+    return savePresenceImage(bytes);
   });
   app.post("/push/register", { onRequest: guard("meetings") }, async (req) => {
     const { token } = z.object({ token: z.string().startsWith("ExponentPushToken[") }).parse(req.body);

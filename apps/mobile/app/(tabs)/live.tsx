@@ -37,6 +37,7 @@ export default function Live() {
   const [frame, setFrame] = useState<string | null>(null);
   const [live, setLive] = useState<LiveSession | null>(null);
   const [chat, setChat] = useState("");
+  const [showAV, setShowAV] = useState(false);
   const { busy, run } = useAction();
   const s = bot.data;
   const inMeeting = s?.phase === "in-meeting";
@@ -100,8 +101,54 @@ export default function Live() {
     </Pressable>
   );
 
+  // Camera and mic are rarely needed, so they live behind "Advanced" (always shown while live).
+  const avOpen = showAV || !!live;
   const controls = (
     <View style={{ gap: 12 }}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Control icon="camera" label={`${s?.screenshots ?? 0} shots`} tone="accent" disabled={!active} onPress={() => cmd({ type: "screenshot" })} />
+        <Control icon="burst" label="Burst" disabled={!inMeeting} onPress={() => cmd({ type: "burst", count: 5 })} />
+        <Control icon="hand" label="Hand" disabled={!inMeeting} onPress={() => cmd({ type: "raise-hand" })} />
+        <Control
+          icon="leave"
+          label="Leave"
+          tone="danger"
+          disabled={!active}
+          onPress={() =>
+            Alert.alert("Leave the meeting?", "Recording stops and notes are sent.", [
+              { text: "Stay", style: "cancel" },
+              { text: "Leave", style: "destructive", onPress: () => void cmd({ type: "leave" }) },
+            ])
+          }
+        />
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <TextInput
+          value={chat}
+          onChangeText={setChat}
+          placeholder="Message everyone in the chat"
+          placeholderTextColor={c.textSubtle}
+          editable={inMeeting}
+          style={{ flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: c.borderStrong, color: c.text, paddingHorizontal: 12, fontFamily: F.body }}
+        />
+        <Btn label="Send" kind="secondary" disabled={!inMeeting || !chat.trim()} onPress={() => run(async () => (await client!.botCommand({ type: "chat", text: chat.trim() }), setChat("")))} />
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: avOpen }}
+        disabled={!!live}
+        onPress={() => setShowAV(!showAV)}
+        style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8 }}
+      >
+        <View style={{ flex: 1 }}>
+          <T style={{ fontFamily: F.semi }}>Advanced: camera & microphone</T>
+          <T v="sub">{s?.camera === "static-image" ? "Showing your photo" : s?.camera === "live" ? "Your phone is live" : "Camera off, mic muted"}</T>
+        </View>
+        {!live && <T v="sub">{avOpen ? "Hide" : "Show"}</T>}
+      </Pressable>
+      {avOpen && (
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <T v="label">Your camera</T>
@@ -155,36 +202,7 @@ export default function Live() {
               : "The others see your name with the camera off. Recording and screenshots keep running."}
         </T>
       </Card>
-
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Control icon="camera" label={`${s?.screenshots ?? 0} shots`} tone="accent" disabled={!active} onPress={() => cmd({ type: "screenshot" })} />
-        <Control icon="burst" label="Burst" disabled={!inMeeting} onPress={() => cmd({ type: "burst", count: 5 })} />
-        <Control icon="hand" label="Hand" disabled={!inMeeting} onPress={() => cmd({ type: "raise-hand" })} />
-        <Control
-          icon="leave"
-          label="Leave"
-          tone="danger"
-          disabled={!active}
-          onPress={() =>
-            Alert.alert("Leave the meeting?", "Recording stops and notes are sent.", [
-              { text: "Stay", style: "cancel" },
-              { text: "Leave", style: "destructive", onPress: () => void cmd({ type: "leave" }) },
-            ])
-          }
-        />
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <TextInput
-          value={chat}
-          onChangeText={setChat}
-          placeholder="Message everyone in the chat"
-          placeholderTextColor={c.textSubtle}
-          editable={inMeeting}
-          style={{ flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: c.borderStrong, color: c.text, paddingHorizontal: 12, fontFamily: F.body }}
-        />
-        <Btn label="Send" kind="secondary" disabled={!inMeeting || !chat.trim()} onPress={() => run(async () => (await client!.botCommand({ type: "chat", text: chat.trim() }), setChat("")))} />
-      </View>
+      )}
     </View>
   );
 

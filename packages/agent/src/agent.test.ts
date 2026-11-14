@@ -8,6 +8,7 @@ import { teamsWebUrl } from "./bot/adapters/teams.js";
 import { countFromLabel } from "./bot/adapters/types.js";
 import { zoomWebClientUrl } from "./bot/adapters/zoom.js";
 import { joinStall } from "./bot/join-watch.js";
+import { directImageUrl, fetchImageFromLink, isPublicAddress } from "./image-link.js";
 import { ffmpegArgs } from "./bot/recorder.js";
 import { ShotEngine } from "./bot/shots.js";
 import { ControlLink } from "./control.js";
@@ -53,6 +54,52 @@ describe("platform URLs", () => {
   it("parses participant counts", () => {
     expect(countFromLabel("Show everyone (12)")).toBe(12);
     expect(countFromLabel("People")).toBeNull();
+  });
+});
+
+describe("photo from a link", () => {
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 1)]);
+  const publicDns = async () => ["142.250.1.1"];
+  const reply = (status: number, body: BodyInit | null, headers: Record<string, string> = {}) => new Response(body, { status, headers });
+
+  it("turns share links into direct downloads", () => {
+    expect(directImageUrl("https://drive.google.com/file/d/1AbCdEfGhIjKlMn/view?usp=sharing")).toBe(
+      "https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMn",
+    );
+    expect(directImageUrl("https://drive.google.com/open?id=1AbCdEfGhIjKlMn")).toBe("https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMn");
+    expect(directImageUrl("https://www.dropbox.com/s/abc/me.jpg?dl=0")).toBe("https://www.dropbox.com/s/abc/me.jpg?dl=1");
+    expect(directImageUrl("https://example.com/me.png")).toBe("https://example.com/me.png");
+  });
+
+  it("knows which addresses are private", () => {
+    for (const ip of ["127.0.0.1", "10.1.2.3", "169.254.169.254", "168.63.129.16", "192.168.1.1", "172.20.0.1", "100.64.0.1", "::1", "fd00::1", "::ffff:127.0.0.1"])
+      expect(isPublicAddress(ip), ip).toBe(false);
+    for (const ip of ["142.250.1.1", "20.204.42.174", "2606:4700::1"]) expect(isPublicAddress(ip), ip).toBe(true);
+  });
+
+  it("downloads a real image, following public redirects", async () => {
+    const seen: string[] = [];
+    const f = (async (u: URL) => {
+      seen.push(String(u));
+      return seen.length === 1 ? reply(302, null, { location: "https://cdn.example.com/me.png" }) : reply(200, PNG);
+    }) as unknown as typeof fetch;
+    const r = await fetchImageFromLink("https://example.com/me", { fetch: f, resolve: publicDns });
+    expect(r.type).toBe("image/png");
+    expect(seen).toEqual(["https://example.com/me", "https://cdn.example.com/me.png"]);
+  });
+
+  it("refuses private addresses, plain http, non-images and huge files", async () => {
+    const ok = (async () => reply(200, PNG)) as unknown as typeof fetch;
+    await expect(fetchImageFromLink("http://example.com/me.png", { fetch: ok, resolve: publicDns })).rejects.toThrow(/https/);
+    await expect(fetchImageFromLink("https://169.254.169.254/metadata", { fetch: ok })).rejects.toThrow(/private/);
+    await expect(fetchImageFromLink("https://sneaky.example.com/x", { fetch: ok, resolve: async () => ["127.0.0.1"] })).rejects.toThrow(/private/);
+    // a public link that redirects to the Azure metadata service
+    let n = 0;
+    const redir = (async () => (n++ === 0 ? reply(302, null, { location: "https://169.254.169.254/" }) : reply(200, PNG))) as unknown as typeof fetch;
+    await expect(fetchImageFromLink("https://example.com/x", { fetch: redir, resolve: publicDns })).rejects.toThrow(/private/);
+    const html = (async () => reply(200, "<html>Sign in</html>")) as unknown as typeof fetch;
+    await expect(fetchImageFromLink("https://example.com/x", { fetch: html, resolve: publicDns })).rejects.toThrow(/PNG or JPEG/);
+    await expect(fetchImageFromLink("https://example.com/x", { fetch: ok, resolve: publicDns, maxBytes: 100 })).rejects.toThrow(/15 MB/);
   });
 });
 

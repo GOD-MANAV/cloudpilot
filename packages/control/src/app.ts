@@ -211,6 +211,12 @@ export function createApp(deps: AppDeps) {
         await finishRestart();
         return ok(await fullStatus());
       }
+      if (method === "POST" && seg[1] === "keep-on") {
+        // The safety stop leaves the machine alone while you've asked to keep it on.
+        const { hours } = z.object({ hours: z.union([z.number().min(0).max(24), z.literal("forever")]) }).parse(req.body);
+        await store.setFlag("keep-on-until", hours === "forever" ? "forever" : hours > 0 ? String(now().getTime() + hours * 3600_000) : null);
+        return { status: 204 };
+      }
       if (method === "POST" && seg[1] === "restart") {
         need(a, "owner");
         const { purpose } = z.object({ purpose: StartPurpose.default("dev") }).parse(req.body ?? {});
@@ -241,6 +247,7 @@ export function createApp(deps: AppDeps) {
       }
       if (method === "POST" && seg[1] === "stop") {
         await store.setFlag("restart-for", null); // a plain stop cancels a pending restart
+        await store.setFlag("keep-on-until", null); // …and any "keep on"
         await vm.deallocate();
         return ok({ ...(await vm.status()), agentHealthy: false });
       }
@@ -524,7 +531,9 @@ export function createApp(deps: AppDeps) {
       const since = Number((await store.getFlag("running-since")) ?? 0);
       if (!since) await store.setFlag("running-since", String(d.getTime()));
       const { maxRunHours } = await controlSettings();
-      if (since && maxRunHours > 0 && !live && d.getTime() - since >= maxRunHours * 3600_000) {
+      const keep = await store.getFlag("keep-on-until");
+      const keptOn = keep === "forever" || (!!keep && d.getTime() < Number(keep));
+      if (since && maxRunHours > 0 && !live && !keptOn && d.getTime() - since >= maxRunHours * 3600_000) {
         await store.setFlag("running-since", null);
         await vm.deallocate();
         log.push(`safety stop after ${maxRunHours} h`);
@@ -532,6 +541,7 @@ export function createApp(deps: AppDeps) {
       }
     } else if (s.power === "deallocated" || s.power === "stopped") {
       await store.setFlag("running-since", null);
+      await store.setFlag("keep-on-until", null); // keep-on lasts for one run only
     }
 
     // 4. wake for meetings

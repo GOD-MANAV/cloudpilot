@@ -1,7 +1,7 @@
 import { VM_SIZES, type VmSize } from "@cloudpilot/shared";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAction, usePoll } from "../../src/hooks";
 import { Cols, MaxWidth } from "../../src/layout";
@@ -86,6 +86,15 @@ export default function Home() {
     return () => clearInterval(t);
   }, []);
   const stuck = waitingSince !== null && Date.now() - waitingSince > 6 * 60_000;
+  const [keepOpen, setKeepOpen] = useState(false);
+  const [customHours, setCustomHours] = useState("");
+  const keep = (h: number | "forever") =>
+    run(async () => {
+      await client!.keepOn(h);
+      setKeepOpen(false);
+      setCustomHours("");
+      agent.reload();
+    });
   const needsAgent = (go: () => void) => () =>
     running
       ? go()
@@ -136,15 +145,41 @@ export default function Home() {
                     </T>
                   ) : (
                     <T v="sub">
-                      {agent.data?.idle.shutdownInMinutes != null
-                        ? `Stops itself in ${agent.data.idle.shutdownInMinutes} min if nothing is happening.`
-                        : "Starting services… (about 1–2 minutes)"}
+                      {agent.data?.idle.keepOnForever
+                        ? "Stays on until you press Stop (the monthly budget limit still applies)."
+                        : agent.data?.idle.keepOnUntil
+                          ? `Kept on until ${fmtTime(agent.data.idle.keepOnUntil)}, then stops itself when idle.`
+                          : agent.data?.idle.shutdownInMinutes != null
+                            ? `Stops itself in ${agent.data.idle.shutdownInMinutes} min if nothing is happening.`
+                            : "Starting services… (about 1–2 minutes)"}
                     </T>
                   )}
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <Btn style={{ flex: 1 }} kind="danger" icon="power" label="Stop" busy={busy} onPress={() => run(async () => (await client!.vmStop(), vm.reload()))} />
-                    <Btn style={{ flex: 1 }} kind="secondary" label="Keep on 1 h" disabled={!running || busy} onPress={() => run(() => client!.keepOn(1))} />
+                    <Btn style={{ flex: 1 }} kind="secondary" label={keepOpen ? "Close" : "Keep on…"} disabled={!running || busy} onPress={() => setKeepOpen(!keepOpen)} />
                   </View>
+                  {keepOpen && running && (
+                    <View style={{ gap: 8 }}>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                        {([1, 2, 3, 6] as const).map((h) => (
+                          <Btn key={h} small kind="secondary" label={`${h} h`} onPress={() => keep(h)} />
+                        ))}
+                        <Btn small kind="secondary" label="Until I stop it" onPress={() => keep("forever")} />
+                        {(agent.data?.idle.keepOnUntil || agent.data?.idle.keepOnForever) && <Btn small kind="ghost" label="Cancel keep-on" onPress={() => keep(0)} />}
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                        <TextInput
+                          value={customHours}
+                          onChangeText={(t) => setCustomHours(t.replace(/[^0-9]/g, "").slice(0, 2))}
+                          keyboardType="number-pad"
+                          placeholder="Hours (1–24)"
+                          placeholderTextColor={c.textSubtle}
+                          style={{ flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: c.borderStrong, color: c.text, paddingHorizontal: 12, fontFamily: F.medium }}
+                        />
+                        <Btn small label="Keep on" disabled={!(Number(customHours) >= 1 && Number(customHours) <= 24)} onPress={() => keep(Number(customHours))} />
+                      </View>
+                    </View>
+                  )}
                 </>
               ) : (
                 <>

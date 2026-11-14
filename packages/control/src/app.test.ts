@@ -262,6 +262,31 @@ describe("meetings + tick", () => {
     expect(vm.power).toBe("running");
   });
 
+  it("keep-on holds off the safety stop: for some hours, or until you press Stop", async () => {
+    await call("PUT", "/settings", { maxRunHours: 2 });
+    await call("POST", "/vm/start");
+    expect((await call("POST", "/vm/keep-on", { hours: 3 })).status).toBe(204);
+    clock = new Date(clock.getTime() + 150 * 60_000); // 2.5 h: past the safety stop, inside keep-on
+    await api.tick();
+    expect(vm.power).toBe("running");
+    clock = new Date(clock.getTime() + 40 * 60_000); // keep-on over
+    await api.tick();
+    expect(vm.power).toBe("deallocated");
+
+    await call("POST", "/vm/start");
+    await call("POST", "/vm/keep-on", { hours: "forever" });
+    clock = new Date(clock.getTime() + 20 * 3600_000);
+    await api.tick();
+    expect(vm.power).toBe("running");
+    // Stop ends it; the next run is back to normal
+    await call("POST", "/vm/stop");
+    await call("POST", "/vm/start");
+    clock = new Date(clock.getTime() + 3 * 3600_000);
+    await api.tick();
+    expect(vm.power).toBe("deallocated");
+    expect((await call("POST", "/vm/keep-on", { hours: 99 })).status).toBe(400);
+  });
+
   it("wakes the VM 8 minutes before an auto-join meeting, not earlier", async () => {
     await call("POST", "/meetings", meeting);
     clock = new Date("2026-11-15T04:20:00Z");

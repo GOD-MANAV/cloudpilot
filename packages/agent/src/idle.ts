@@ -44,7 +44,9 @@ export class IdleWatch {
       idleMinutes: Math.floor(idleMs / 60_000),
       shutdownInMinutes: this.idleMinutes > 0 ? Math.max(0, this.idleMinutes - Math.floor(idleMs / 60_000)) : null,
       holds: Object.fromEntries(this.holds),
-      keepOnUntil: this.keepOnUntil ? new Date(this.keepOnUntil).toISOString() : null,
+      keepOnUntil: Number.isFinite(this.keepOnUntil) && this.keepOnUntil > Date.now() ? new Date(this.keepOnUntil).toISOString() : null,
+      /** Kept on until someone presses Stop. */
+      keepOnForever: this.keepOnUntil === Number.POSITIVE_INFINITY,
     };
   }
 

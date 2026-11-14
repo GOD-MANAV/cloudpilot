@@ -41,9 +41,37 @@ export function Overview({ go }: { go: (r: string) => void }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {vm.data?.power === "running" ? (
             <>
-              <button className="btn btn-secondary" disabled={busy || !running} onClick={() => run(() => client!.keepOn(1), "Kept on for 1 hour")}>
-                Keep on 1 h
-              </button>
+              <select
+                className="btn btn-secondary"
+                aria-label="Keep the machine on"
+                disabled={busy || !running}
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  let hours: number | "forever" | null = v === "forever" ? "forever" : v === "custom" ? null : Number(v);
+                  if (v === "custom") {
+                    const n = Number(prompt("Keep it on for how many hours? (1–24)") ?? "");
+                    if (!(n >= 1 && n <= 24)) return;
+                    hours = Math.round(n);
+                  }
+                  if (hours === null) return;
+                  void run(
+                    async () => (await client!.keepOn(hours), agent.reload()),
+                    hours === "forever" ? "Stays on until you press Stop" : hours === 0 ? "Keep-on cancelled" : `Kept on for ${hours} h`,
+                  );
+                }}
+              >
+                <option value="" disabled>
+                  Keep on…
+                </option>
+                <option value="1">1 hour</option>
+                <option value="2">2 hours</option>
+                <option value="3">3 hours</option>
+                <option value="6">6 hours</option>
+                <option value="custom">Custom…</option>
+                <option value="forever">Until I stop it</option>
+                {(agent.data?.idle.keepOnUntil || agent.data?.idle.keepOnForever) && <option value="0">Cancel keep-on</option>}
+              </select>
               <button className="btn btn-danger" disabled={busy} onClick={() => run(async () => (await client!.vmStop(), vm.reload()), "Stopping…")}>
                 <Icon name="power" /> Stop
               </button>
@@ -63,7 +91,15 @@ export function Overview({ go }: { go: (r: string) => void }) {
           <PowerChip power={vm.data?.power} />
           <span className="sub">
             {vm.data?.power === "running"
-              ? `On for ${fmtDuration(vm.data.since)}${agent.data?.idle.shutdownInMinutes != null ? ` · stops in ${agent.data.idle.shutdownInMinutes} min if idle` : ""}`
+              ? `On for ${fmtDuration(vm.data.since)}${
+                  agent.data?.idle.keepOnForever
+                    ? " · stays on until you press Stop"
+                    : agent.data?.idle.keepOnUntil
+                      ? ` · kept on until ${fmtTime(agent.data.idle.keepOnUntil)}`
+                      : agent.data?.idle.shutdownInMinutes != null
+                        ? ` · stops in ${agent.data.idle.shutdownInMinutes} min if idle`
+                        : ""
+                }`
               : "Costs nothing while stopped (just the disk)."}
           </span>
           {vm.data?.power === "running" && !running && (

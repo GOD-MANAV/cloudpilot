@@ -25,6 +25,7 @@ export const AgentStatus = z.object({
     shutdownInMinutes: z.number().nullable(),
     holds: z.record(z.string(), z.number()),
     keepOnUntil: z.string().nullable(),
+    keepOnForever: z.boolean().default(false),
   }),
   control: z.object({ lastSyncAt: z.string().nullable(), meetings: z.number() }),
   diskFreeGb: z.number().nullable(),
@@ -292,7 +293,12 @@ export class CloudPilotClient {
   agentStatus() {
     return this.agent(AgentStatus, "/status");
   }
-  keepOn(hours: number) {
+  /**
+   * Keep the machine on for `hours` (0 cancels) or "forever" (until you press Stop).
+   * Tells both the machine (idle stop) and the control plane (safety stop).
+   */
+  async keepOn(hours: number | "forever") {
+    await this.ctl(null, "/vm/keep-on", { method: "POST", body: JSON.stringify({ hours }) });
     return this.agent(null, "/keep-on", { method: "POST", body: JSON.stringify({ hours }) });
   }
   botJoin(meetingId: string) {
@@ -321,6 +327,10 @@ export class CloudPilotClient {
       body: bytes as BodyInit,
     });
     if (!res.ok) throw new ApiError(res.status, "Upload failed");
+  }
+  /** Set the meeting photo from a link (direct image, Google Drive or Dropbox share link). */
+  presenceImageFromLink(url: string) {
+    return this.agent(null, "/settings/static-image/from-link", { method: "POST", body: JSON.stringify({ url }) });
   }
   googleStatus() {
     return this.agent(GoogleStatus, "/google/status");

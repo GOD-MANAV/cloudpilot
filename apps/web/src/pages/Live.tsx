@@ -96,28 +96,6 @@ export function Live() {
             {frame ? <img src={frame} alt="What the meeting shows right now" /> : <span className="sub">No meeting open</span>}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-            <div className="seg" role="radiogroup" aria-label="Camera">
-              {(["off", "static-image", "live"] as const).map((m) => (
-                <button
-                  key={m}
-                  role="radio"
-                  aria-checked={s?.camera === m}
-                  disabled={!inMeeting || busy || (m === "live" && !live)}
-                  onClick={() => cmd({ type: "camera", mode: m })}
-                >
-                  {m === "off" ? "Camera off" : m === "static-image" ? "Photo" : "Live"}
-                </button>
-              ))}
-            </div>
-            <button
-              className={`btn btn-sm ${s?.mic === "live" ? "btn-primary" : "btn-secondary"}`}
-              aria-pressed={s?.mic === "live"}
-              disabled={!inMeeting || !live || busy}
-              onClick={() => cmd({ type: "mic", mode: s?.mic === "live" ? "muted" : "live" })}
-            >
-              {s?.mic === "live" ? "Mic live — mute" : "Unmute"}
-            </button>
-            <span style={{ flexGrow: 1 }} />
             <button className="btn btn-primary" disabled={!s || s.phase === "idle" || busy} onClick={() => cmd({ type: "screenshot" }, "Screenshot saved")}>
               <Icon name="camera" /> Screenshot · {s?.screenshots ?? 0}
             </button>
@@ -148,10 +126,37 @@ export function Live() {
           </form>
         </section>
 
-        <section className="card" style={{ flex: "1 1 280px" }}>
-          <h2>Take over</h2>
+        <details className="card" style={{ flex: "1 1 280px" }} open={!!live || undefined}>
+          {/* Rarely needed, so closed by default; always open while you're live so you can stop. */}
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+            Advanced: camera & microphone
+            <span className="sub" style={{ display: "block", fontWeight: 400 }}>
+              {s?.camera === "static-image" ? "Showing your photo" : s?.camera === "live" ? "You're live" : "Camera off, mic muted"}
+            </span>
+          </summary>
+          <div className="seg" role="radiogroup" aria-label="Camera">
+            {(["off", "static-image", "live"] as const).map((m) => (
+              <button
+                key={m}
+                role="radio"
+                aria-checked={s?.camera === m}
+                disabled={!inMeeting || busy || (m === "live" && !live)}
+                onClick={() => cmd({ type: "camera", mode: m })}
+              >
+                {m === "off" ? "Camera off" : m === "static-image" ? "Photo" : "Live"}
+              </button>
+            ))}
+          </div>
+          <button
+            className={`btn btn-sm ${s?.mic === "live" ? "btn-primary" : "btn-secondary"}`}
+            aria-pressed={s?.mic === "live"}
+            disabled={!inMeeting || !live || busy}
+            onClick={() => cmd({ type: "mic", mode: s?.mic === "live" ? "muted" : "live" })}
+          >
+            {s?.mic === "live" ? "Mic live — mute" : "Unmute"}
+          </button>
           <p className="sub" style={{ margin: 0 }}>
-            Send this computer's camera and mic into the meeting. The others see you live; your mic stays muted until you unmute.
+            Go live sends this computer's camera and mic into the meeting. The others see you live; your mic stays muted until you unmute.
           </p>
           <video ref={selfView} autoPlay muted playsInline style={{ width: "100%", borderRadius: 14, background: "#000", aspectRatio: "16/9", display: live ? "block" : "none" }} />
           {live ? (
@@ -169,7 +174,7 @@ export function Live() {
               Retry connection
             </button>
           )}
-        </section>
+        </details>
       </div>
     </>
   );
