@@ -298,7 +298,11 @@ export class CloudPilotClient {
    * Tells both the machine (idle stop) and the control plane (safety stop).
    */
   async keepOn(hours: number | "forever") {
-    await this.ctl(null, "/vm/keep-on", { method: "POST", body: JSON.stringify({ hours }) });
+    // A control plane deployed before this feature answers 404: keep-on still works on the
+    // machine, only the 8-hour safety stop doesn't know about it until you update.
+    await this.ctl(null, "/vm/keep-on", { method: "POST", body: JSON.stringify({ hours }) }).catch((e: unknown) => {
+      if (!(e instanceof ApiError && e.status === 404)) throw e;
+    });
     return this.agent(null, "/keep-on", { method: "POST", body: JSON.stringify({ hours }) });
   }
   botJoin(meetingId: string) {
